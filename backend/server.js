@@ -9,7 +9,7 @@ const multer = require('multer');
 const rateLimit = require('express-rate-limit');
 const sequelize = require('./db');
 const { Op } = require('sequelize');
-const { User, Registration, BillingInfo, TrainingEvent, GalleryMedia } = require('./models');
+const { User, Registration, BillingInfo, TrainingEvent, GalleryMedia, PaymentConfig } = require('./models');
 
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '.env') });
@@ -51,6 +51,20 @@ const upload = multer({
   },
 });
 
+const receiptUpload = multer({
+  storage: uploadStorage,
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowed = file.mimetype.startsWith('image/') || file.mimetype === 'application/pdf';
+    if (allowed) {
+      cb(null, true);
+      return;
+    }
+
+    cb(new Error('Only image or PDF receipt files are allowed'));
+  },
+});
+
 app.use(cors());
 app.use(express.json());
 app.use('/uploads', express.static(uploadsDir));
@@ -87,11 +101,17 @@ app.post('/api/register', async (req, res) => {
     const registration = await Registration.create({
       playerName, age, gender, program, medical, consent, userId: user.id
     });
+    const paymentConfig = await getOrCreatePaymentConfig();
+    const totalAmountDue = Number(paymentConfig.oneTimeRegistrationFee || 0) + Number(paymentConfig.trainingSessionFee || 0) + Number(paymentConfig.monthlyBundleFee || 0);
+
     // Create billing info for this registration
     await BillingInfo.create({
       registrationId: registration.id,
-      amountDue: 0,
-      dueDate: new Date(),
+      amountDue: totalAmountDue,
+      registrationFee: paymentConfig.oneTimeRegistrationFee,
+      trainingSessionFee: paymentConfig.trainingSessionFee,
+      bundleFee: paymentConfig.monthlyBundleFee,
+      dueDate: paymentConfig.dueDate,
       paid: false
     });
     res.json({ message: 'Registration successful' });
@@ -142,6 +162,20 @@ async function getOrCreateActiveEvent() {
   });
 }
 
+async function getOrCreatePaymentConfig() {
+  const config = await PaymentConfig.findOne({ where: { isActive: true }, order: [['updatedAt', 'DESC']] });
+
+  if (config) return config;
+
+  return PaymentConfig.create({
+    oneTimeRegistrationFee: 40000,
+    trainingSessionFee: 30000,
+    monthlyBundleFee: 0,
+    dueDate: new Date(),
+    isActive: true,
+  });
+}
+
 // Public: current training event notification
 app.get('/api/training-event', async (req, res) => {
   try {
@@ -174,6 +208,22 @@ app.get('/api/gallery', async (req, res) => {
   }
 });
 
+// Public: current global payment configuration
+app.get('/api/payment-config', async (req, res) => {
+  try {
+    const config = await getOrCreatePaymentConfig();
+    const totalAmountDue = Number(config.oneTimeRegistrationFee || 0) + Number(config.trainingSessionFee || 0) + Number(config.monthlyBundleFee || 0);
+    res.json({
+      data: {
+        ...config.toJSON(),
+        totalAmountDue,
+      },
+    });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 // Get billing info (user)
 app.get('/api/billing', auth, async (req, res) => {
   try {
@@ -182,6 +232,43 @@ app.get('/api/billing', auth, async (req, res) => {
     if (!registration) return res.status(404).json({ error: 'Registration not found' });
     const billing = await BillingInfo.findOne({ where: { registrationId: registration.id } });
     res.json(billing);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// User: upload payment receipt
+app.post('/api/billing/receipt', auth, receiptUpload.single('receipt'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'Receipt file is required' });
+
+    const registration = await Registration.findOne({ where: { userId: req.user.id } });
+    if (!registration) return res.status(404).json({ error: 'Registration not found' });
+
+    const billing = await BillingInfo.findOne({ where: { registrationId: registration.id } });
+    if (!billing) return res.status(404).json({ error: 'Billing record not found' });
+
+    if (billing.receiptUrl) {
+      const oldPath = path.join(__dirname, billing.receiptUrl.replace('/uploads/', 'uploads/'));
+      if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+    }
+
+    await billing.update({
+      receiptUrl: `/uploads/${req.file.filename}`,
+      receiptMimeType: req.file.mimetype,
+      receiptUploadedAt: new Date(),
+      paymentConfirmedAt: null,
+      paid: false,
+    });
+
+    if (registration.status !== 'Receipt Submitted') {
+      await registration.update({ status: 'Receipt Submitted' });
+    }
+
+    res.json({
+      message: 'Receipt uploaded successfully',
+      data: billing,
+    });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -221,9 +308,95 @@ app.get('/api/admin/registrations', auth, async (req, res) => {
   if (!req.user.isAdmin) return res.status(403).json({ error: 'Forbidden' });
   try {
     const registrations = await Registration.findAll({
-      include: { model: User, attributes: ['parentName', 'email', 'phone'] }
+      include: [
+        { model: User, attributes: ['parentName', 'email', 'phone'] },
+        { model: BillingInfo, attributes: ['id', 'amountDue', 'registrationFee', 'trainingSessionFee', 'bundleFee', 'dueDate', 'paid', 'receiptUrl', 'receiptMimeType', 'receiptUploadedAt', 'paymentConfirmedAt'] },
+      ],
     });
     res.json({ data: registrations });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Admin: adjust global payment amount and due date
+app.put('/api/admin/payment-config', auth, async (req, res) => {
+  if (!req.user.isAdmin) return res.status(403).json({ error: 'Forbidden' });
+
+  try {
+    const { oneTimeRegistrationFee, trainingSessionFee, monthlyBundleFee, dueDate } = req.body;
+
+    if (oneTimeRegistrationFee === undefined || trainingSessionFee === undefined || dueDate === undefined) {
+      return res.status(400).json({ error: 'oneTimeRegistrationFee, trainingSessionFee, and dueDate are required' });
+    }
+
+    const registrationFee = Number(oneTimeRegistrationFee);
+    const sessionFee = Number(trainingSessionFee);
+    const bundleFee = monthlyBundleFee === undefined || monthlyBundleFee === null || monthlyBundleFee === ''
+      ? 0
+      : Number(monthlyBundleFee);
+    if (Number.isNaN(registrationFee) || registrationFee < 0 || Number.isNaN(sessionFee) || sessionFee < 0 || Number.isNaN(bundleFee) || bundleFee < 0) {
+      return res.status(400).json({ error: 'All fee values must be non-negative numbers' });
+    }
+
+    const parsedDueDate = new Date(dueDate);
+    if (Number.isNaN(parsedDueDate.getTime())) {
+      return res.status(400).json({ error: 'dueDate must be a valid date' });
+    }
+
+    const totalAmountDue = registrationFee + sessionFee + bundleFee;
+
+    const config = await getOrCreatePaymentConfig();
+    await config.update({
+      oneTimeRegistrationFee: registrationFee,
+      trainingSessionFee: sessionFee,
+      monthlyBundleFee: bundleFee,
+      dueDate: parsedDueDate,
+    });
+
+    await BillingInfo.update(
+      {
+        amountDue: totalAmountDue,
+        registrationFee,
+        trainingSessionFee: sessionFee,
+        bundleFee,
+        dueDate: parsedDueDate,
+      },
+      { where: { paid: false } },
+    );
+
+    res.json({
+      message: 'Global payment configuration updated successfully',
+      data: {
+        ...config.toJSON(),
+        totalAmountDue,
+      },
+    });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Admin: confirm payment received for a registration
+app.post('/api/admin/registrations/:id/confirm-payment', auth, async (req, res) => {
+  if (!req.user.isAdmin) return res.status(403).json({ error: 'Forbidden' });
+
+  try {
+    const registration = await Registration.findByPk(req.params.id);
+    if (!registration) return res.status(404).json({ error: 'Registration not found' });
+
+    const billing = await BillingInfo.findOne({ where: { registrationId: registration.id } });
+    if (!billing) return res.status(404).json({ error: 'Billing record not found' });
+    if (!billing.receiptUrl) return res.status(400).json({ error: 'No receipt uploaded yet' });
+
+    await billing.update({
+      paid: true,
+      paymentConfirmedAt: new Date(),
+    });
+
+    await registration.update({ status: 'Paid' });
+
+    res.json({ message: 'Payment confirmed successfully', data: { registrationId: registration.id } });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -285,4 +458,150 @@ app.post('/api/admin/gallery/upload', auth, upload.single('media'), async (req, 
     const { title, caption } = req.body;
 
     if (!req.file) return res.status(400).json({ error: 'Media file is required' });
-    if (!title) return res.status(400).json({ error: 'Media title is
+    if (!title) return res.status(400).json({ error: 'Media title is required' });
+
+    const mediaType = req.file.mimetype.startsWith('video/') ? 'video' : 'image';
+    const mediaUrl = `/uploads/${req.file.filename}`;
+
+    const created = await GalleryMedia.create({
+      title,
+      caption: caption || '',
+      mediaType,
+      mediaUrl,
+      mimeType: req.file.mimetype,
+      isPublished: true,
+    });
+
+    res.json({ message: 'Media uploaded successfully', data: created });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Admin: delete gallery media item
+app.delete('/api/admin/gallery/:id', auth, async (req, res) => {
+  if (!req.user.isAdmin) return res.status(403).json({ error: 'Forbidden' });
+
+  try {
+    const item = await GalleryMedia.findByPk(req.params.id);
+    if (!item) return res.status(404).json({ error: 'Media item not found' });
+
+    const absolutePath = path.join(__dirname, item.mediaUrl.replace('/uploads/', 'uploads/'));
+    if (fs.existsSync(absolutePath)) {
+      fs.unlinkSync(absolutePath);
+    }
+
+    await item.destroy();
+    res.json({ message: 'Media deleted successfully' });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Admin: change own password
+app.post('/api/admin/change-password', auth, async (req, res) => {
+  if (!req.user.isAdmin) return res.status(403).json({ error: 'Forbidden' });
+
+  try {
+    const { currentPassword, newPassword } = req.body;
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: 'Current password and new password are required' });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: 'New password must be at least 6 characters' });
+    }
+
+    const user = await User.findByPk(req.user.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const isMatch = await bcrypt.compare(currentPassword, user.password);
+    if (!isMatch) {
+      return res.status(401).json({ error: 'Current password is incorrect' });
+    }
+
+    const hash = await bcrypt.hash(newPassword, 10);
+    await user.update({ password: hash, resetToken: null, resetTokenExpiry: null });
+
+    res.json({ message: 'Password changed successfully' });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Forgot password
+app.post('/api/forgot-password', async (req, res) => {
+  try {
+    const { email } = req.body;
+    const user = await User.findOne({ where: { email } });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    // Generate reset token
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    const resetTokenExpiry = new Date(Date.now() + 3600000); // 1 hour expiry
+
+    await user.update({ resetToken, resetTokenExpiry });
+
+    // TODO: Send email with reset link (use SendGrid or similar)
+    // For now, just log it
+    const resetUrl = `http://localhost:3000?page=ResetPassword&token=${resetToken}`;
+    console.log(`Password reset link: ${resetUrl}`);
+    
+    res.json({ message: 'Password reset link sent (check console in dev mode)' });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Reset password
+app.post('/api/reset-password', async (req, res) => {
+  try {
+    const { token, password } = req.body;
+    const user = await User.findOne({
+      where: {
+        resetToken: token,
+        resetTokenExpiry: { [Op.gt]: new Date() }
+      }
+    });
+
+    if (!user) return res.status(400).json({ error: 'Invalid or expired reset token' });
+    if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+
+    const hash = await bcrypt.hash(password, 10);
+    await user.update({ password: hash, resetToken: null, resetTokenExpiry: null });
+
+    res.json({ message: 'Password reset successfully' });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Update profile
+app.put('/api/profile', auth, async (req, res) => {
+  try {
+    const { parentName, phone, address } = req.body;
+    const user = await User.findByPk(req.user.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    await user.update({ parentName, phone, address });
+    res.json({ message: 'Profile updated', user });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Sample API route
+app.get('/api/hello', (req, res) => {
+  res.json({ message: 'Hello from the backend!' });
+});
+
+// Global error handler
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({ error: 'Internal server error' });
+});
+
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});

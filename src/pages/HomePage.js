@@ -183,3 +183,43 @@ function ScheduleSection({ setPage, eventNotification }) {
         </div>
       </div>
     </section>
+  );
+}
+
+export default function HomePage({ setPage }) {
+  const [eventNotification, setEventNotification] = useState({
+    title: "Next Training Session",
+    dateLabel: BRAND.nextSession,
+    venue: BRAND.venue,
+    note: "Open to all new registrants",
+  });
+
+  useEffect(() => {
+    const loadTrainingEvent = async () => {
+      try {
+        const response = await fetch(`${API}/training-event`);
+        const data = await response.json();
+        if (!response.ok || !data.data) return;
+
+        setEventNotification({
+          title: data.data.title || "Next Training Session",
+          dateLabel: data.data.dateLabel || BRAND.nextSession,
+          venue: data.data.venue || BRAND.venue,
+          note: data.data.note || "Open to all new registrants",
+        });
+      } catch {
+        // Keep fallback values from BRAND constants when API is unavailable.
+      }
+    };
+
+    loadTrainingEvent();
+  }, []);
+
+  return (
+    <>
+      <Hero setPage={setPage} eventNotification={eventNotification} />
+      <AboutSection />
+      <ScheduleSection setPage={setPage} eventNotification={eventNotification} />
+    </>
+  );
+}

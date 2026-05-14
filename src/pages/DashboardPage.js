@@ -27,10 +27,20 @@ export default function DashboardPage({ user, setPage }) {
   if (!profile) return <div style={{ padding: 40 }}>Loading profile...</div>;
 
   const { registration, user: parent, billing } = profile;
-  const fees = { "Junior Stars (4-8)": 30000, "Intermediate (9-12)": 30000, "Elite (13-15)": 30000 };
-  const registrationFee = 40000;
-  const monthlyFee = registration ? fees[registration.program] || 30000 : 30000;
-  const total = registrationFee + monthlyFee;
+  const registrationFee = billing?.registrationFee ?? 40000;
+  const trainingSessionFee = billing?.trainingSessionFee ?? 30000;
+  const bundleFee = billing?.bundleFee ?? 0;
+  const hasBundleFee = bundleFee > 0;
+  const fallbackTotal = registrationFee + trainingSessionFee + bundleFee;
+  const amountDue = billing?.amountDue ?? fallbackTotal;
+  const dueDateLabel = billing?.dueDate ? new Date(billing.dueDate).toLocaleDateString() : "Not set";
+  const hasUploadedReceipt = !!billing?.receiptUrl;
+  const paymentStatusLabel = billing?.paid
+    ? "Paid"
+    : hasUploadedReceipt
+      ? "Receipt Uploaded - Awaiting Confirmation"
+      : "Pending Payment";
+  const paymentStatusColor = billing?.paid ? "#43A047" : hasUploadedReceipt ? "#1565c0" : "#FFA000";
 
   return (
     <div style={{ paddingTop: 70, background: ASH, minHeight: "100vh" }}>
@@ -44,8 +54,8 @@ export default function DashboardPage({ user, setPage }) {
             <h1 style={{ color: "white", fontFamily: "'Playfair Display', Georgia, serif", fontSize: "clamp(24px, 4vw, 40px)", fontWeight: 900, margin: "0 0 8px" }}>{registration?.playerName}</h1>
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
               <Badge>{registration?.program}</Badge>
-              <span style={{ background: billing?.paid ? "#43A047" : "#FFA000", color: "white", fontSize: 11, fontWeight: 800, letterSpacing: 1, padding: "4px 10px", borderRadius: 3, textTransform: "uppercase" }}>
-                {billing?.paid ? "Paid" : "Pending Payment"}
+              <span style={{ background: paymentStatusColor, color: "white", fontSize: 11, fontWeight: 800, letterSpacing: 1, padding: "4px 10px", borderRadius: 3, textTransform: "uppercase" }}>
+                {paymentStatusLabel}
               </span>
               <button onClick={() => setPage("EditProfile")} style={{ background: "rgba(255,255,255,0.2)", color: "white", border: "1px solid rgba(255,255,255,0.5)", padding: "6px 12px", borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: "pointer", marginLeft: "auto" }}>
                 Edit Profile
@@ -87,14 +97,23 @@ export default function DashboardPage({ user, setPage }) {
           <div style={{ background: "white", borderRadius: 16, padding: 32, boxShadow: "0 4px 24px rgba(0,0,0,0.06)" }}>
             <h3 style={{ color: NAVY, fontFamily: "'Playfair Display', Georgia, serif", fontSize: 20, marginBottom: 20 }}>Payment Status</h3>
             <div style={{ textAlign: "center", padding: "16px 0" }}>
-              <div style={{ fontWeight: 800, fontSize: 18, color: billing?.paid ? "#2E7D32" : "#E65100" }}>{billing?.paid ? "Paid" : "Pending Payment"}</div>
+              <div style={{ fontWeight: 800, fontSize: 18, color: billing?.paid ? "#2E7D32" : hasUploadedReceipt ? "#1565c0" : "#E65100" }}>{paymentStatusLabel}</div>
               <div style={{ color: "#888", fontSize: 14, marginTop: 4 }}>
                 Registration fee: <strong>NGN {registrationFee.toLocaleString()}</strong>
                 <br />
-                Monthly fee: <strong>NGN {monthlyFee.toLocaleString()}</strong>
+                Training session fee: <strong>NGN {trainingSessionFee.toLocaleString()}</strong>
                 <br />
-                <span style={{ color: NAVY, fontWeight: 900 }}>Total: NGN {total.toLocaleString()}</span>
+                Bundle fee (optional): <strong>{hasBundleFee ? `NGN ${bundleFee.toLocaleString()}` : "Not applied"}</strong>
+                <br />
+                <span style={{ color: NAVY, fontWeight: 900 }}>Amount Due: NGN {amountDue.toLocaleString()}</span>
+                <br />
+                <span style={{ color: "#555", fontWeight: 700 }}>Due Date: {dueDateLabel}</span>
               </div>
+              {hasUploadedReceipt && !billing?.paid && (
+                <div style={{ marginTop: 10, color: "#1565c0", fontSize: 13, fontWeight: 700 }}>
+                  Receipt submitted. Admin confirmation pending.
+                </div>
+              )}
             </div>
             {!billing?.paid && (
               <button onClick={() => setPage("Payment")} style={{ width: "100%", background: NAVY, color: "white", border: "none", padding: "14px", borderRadius: 10, fontWeight: 900, fontSize: 15, cursor: "pointer", marginTop: 8 }}>

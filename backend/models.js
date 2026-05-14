@@ -28,8 +28,15 @@ const Registration = sequelize.define('Registration', {
 // BillingInfo model
 const BillingInfo = sequelize.define('BillingInfo', {
   amountDue: { type: DataTypes.FLOAT, allowNull: false },
+  registrationFee: { type: DataTypes.FLOAT, allowNull: false, defaultValue: 40000 },
+  trainingSessionFee: { type: DataTypes.FLOAT, allowNull: false, defaultValue: 30000 },
+  bundleFee: { type: DataTypes.FLOAT, allowNull: false, defaultValue: 0 },
   dueDate: { type: DataTypes.DATE, allowNull: false },
   paid: { type: DataTypes.BOOLEAN, defaultValue: false },
+  receiptUrl: { type: DataTypes.STRING, defaultValue: null },
+  receiptMimeType: { type: DataTypes.STRING, defaultValue: null },
+  receiptUploadedAt: { type: DataTypes.DATE, defaultValue: null },
+  paymentConfirmedAt: { type: DataTypes.DATE, defaultValue: null },
 });
 
 // Admin-managed training event notification
@@ -51,10 +58,19 @@ const GalleryMedia = sequelize.define('GalleryMedia', {
   isPublished: { type: DataTypes.BOOLEAN, defaultValue: true },
 });
 
+// Global payment configuration (applies to all unpaid records)
+const PaymentConfig = sequelize.define('PaymentConfig', {
+  oneTimeRegistrationFee: { type: DataTypes.FLOAT, allowNull: false, defaultValue: 40000 },
+  trainingSessionFee: { type: DataTypes.FLOAT, allowNull: false, defaultValue: 30000 },
+  monthlyBundleFee: { type: DataTypes.FLOAT, allowNull: false, defaultValue: 0 },
+  dueDate: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW },
+  isActive: { type: DataTypes.BOOLEAN, defaultValue: true },
+});
+
 // Associations
 User.hasMany(Registration, { foreignKey: 'userId' });
 Registration.belongsTo(User, { foreignKey: 'userId' });
 Registration.hasOne(BillingInfo, { foreignKey: 'registrationId' });
 BillingInfo.belongsTo(Registration, { foreignKey: 'registrationId' });
 
-module.exports = { User, Registration, BillingInfo, TrainingEvent, GalleryMedia };
+module.exports = { User, Registration, BillingInfo, TrainingEvent, GalleryMedia, PaymentConfig };

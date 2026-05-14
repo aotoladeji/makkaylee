@@ -64,4 +64,28 @@ export default function GalleryPage({ setPage }) {
             <article key={item.id || item.mediaUrl || item.title} style={{ background: "white", borderRadius: 14, overflow: "hidden", boxShadow: "0 4px 20px rgba(0,0,0,0.08)" }}>
               <div style={{ height: 220, background: "#DDE2ED" }}>
                 {item.mediaType === "video" ? (
-                  <video src={item.mediaUrl} cont
+                  <video src={item.mediaUrl} controls style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                ) : (
+                  <img src={item.mediaUrl} alt={item.title} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                )}
+              </div>
+              <div style={{ padding: 18 }}>
+                <h3 style={{ color: NAVY, margin: "0 0 8px", fontSize: 18, fontWeight: 800 }}>{item.title}</h3>
+                <p style={{ margin: 0, color: "#4A4A4A", lineHeight: 1.6, fontSize: 14 }}>{item.caption}</p>
+              </div>
+            </article>
+          ))}
+        </div>
+
+        <div style={{ marginTop: 30, display: "flex", justifyContent: "center" }}>
+          <button
+            onClick={() => setPage("Programs")}
+            style={{ background: NAVY, color: "white", border: "none", padding: "12px 24px", borderRadius: 8, fontWeight: 800, cursor: "pointer" }}
+          >
+            View Programs
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

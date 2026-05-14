@@ -54,7 +54,7 @@ export default function App() {
         {page === "ResetPassword" && <ResetPasswordPage setPage={setPage} />}
         {page === "Dashboard" && <DashboardPage user={user} setPage={setPage} />}
         {page === "EditProfile" && <EditProfilePage user={user} setPage={setPage} />}
-        {page === "Payment" && <PaymentPage />}
+        {page === "Payment" && <PaymentPage user={user} setPage={setPage} />}
         {page === "Admin" && <AdminDashboard user={user} setPage={setPage} />}
         {!["Home", "Programs", "Gallery", "Register", "Login", "ForgotPassword", "ResetPassword", "Dashboard", "EditProfile", "Payment", "Admin"].includes(page) && <NotFoundPage setPage={setPage} />}
       </main>

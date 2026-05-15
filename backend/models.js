@@ -29,8 +29,12 @@ const Registration = sequelize.define('Registration', {
 const BillingInfo = sequelize.define('BillingInfo', {
   amountDue: { type: DataTypes.FLOAT, allowNull: false },
   registrationFee: { type: DataTypes.FLOAT, allowNull: false, defaultValue: 40000 },
+  registrationFeeSettled: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
   trainingSessionFee: { type: DataTypes.FLOAT, allowNull: false, defaultValue: 30000 },
+  bundleMonths: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
   bundleFee: { type: DataTypes.FLOAT, allowNull: false, defaultValue: 0 },
+  paymentMode: { type: DataTypes.ENUM('one_time', 'bundle'), allowNull: false, defaultValue: 'one_time' },
+  selectedAmount: { type: DataTypes.FLOAT, defaultValue: null },
   dueDate: { type: DataTypes.DATE, allowNull: false },
   paid: { type: DataTypes.BOOLEAN, defaultValue: false },
   receiptUrl: { type: DataTypes.STRING, defaultValue: null },
@@ -62,6 +66,7 @@ const GalleryMedia = sequelize.define('GalleryMedia', {
 const PaymentConfig = sequelize.define('PaymentConfig', {
   oneTimeRegistrationFee: { type: DataTypes.FLOAT, allowNull: false, defaultValue: 40000 },
   trainingSessionFee: { type: DataTypes.FLOAT, allowNull: false, defaultValue: 30000 },
+  bundleMonths: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
   monthlyBundleFee: { type: DataTypes.FLOAT, allowNull: false, defaultValue: 0 },
   dueDate: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW },
   isActive: { type: DataTypes.BOOLEAN, defaultValue: true },

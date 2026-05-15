@@ -12,7 +12,7 @@ export default function ResetPasswordPage({ setPage }) {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    // Get token from URL query params (e.g., ?page=ResetPassword&token=xyz)
+    // Get token from URL query params (e.g., /reset-password?token=xyz)
     const params = new URLSearchParams(window.location.search);
     const resetToken = params.get("token");
     if (!resetToken) {
@@ -20,7 +20,7 @@ export default function ResetPasswordPage({ setPage }) {
     } else {
       setToken(resetToken);
     }
-  }, [window.location.search]);
+  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();

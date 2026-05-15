@@ -1,7 +1,5 @@
 import { useState, useEffect } from "react";
-import Input from "../components/common/Input";
 import { API } from "../constants/api";
-import { BRAND } from "../constants/brand";
 import { ASH, NAVY } from "../constants/theme";
 
 export default function EditProfilePage({ user, setPage }) {

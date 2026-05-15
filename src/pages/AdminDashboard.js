@@ -40,13 +40,61 @@ export default function AdminDashboard({ user, setPage }) {
   const [paymentConfigForm, setPaymentConfigForm] = useState({
     oneTimeRegistrationFee: 40000,
     trainingSessionFee: 30000,
+    bundleMonths: 0,
     monthlyBundleFee: 0,
     dueDate: "",
   });
   const [paymentConfigMessage, setPaymentConfigMessage] = useState("");
   const [paymentConfigError, setPaymentConfigError] = useState("");
+  const [selectedFamilyKey, setSelectedFamilyKey] = useState("");
+  const [selectedFamilyChildId, setSelectedFamilyChildId] = useState("");
 
   const apiBase = useMemo(() => API.replace(/\/api$/, ""), []);
+  const familyGroups = useMemo(() => {
+    const grouped = new Map();
+
+    registrations.forEach((registration) => {
+      const parentName = registration.User?.parentName || "Unknown Parent";
+      const parentEmail = registration.User?.email || "No email";
+      const parentPhone = registration.User?.phone || "No phone";
+      const key = `${parentEmail}::${parentName}::${parentPhone}`;
+
+      if (!grouped.has(key)) {
+        grouped.set(key, {
+          key,
+          parentName,
+          parentEmail,
+          parentPhone,
+          children: [],
+        });
+      }
+
+      grouped.get(key).children.push(registration);
+    });
+
+    const families = Array.from(grouped.values()).map((family) => ({
+      ...family,
+      children: family.children.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)),
+    }));
+
+    return families.sort((a, b) => a.parentName.localeCompare(b.parentName));
+  }, [registrations]);
+
+  const selectedFamily = useMemo(
+    () => familyGroups.find((family) => family.key === selectedFamilyKey) || null,
+    [familyGroups, selectedFamilyKey],
+  );
+
+  const selectedFamilyChild = useMemo(
+    () => selectedFamily?.children.find((child) => String(child.id) === selectedFamilyChildId) || null,
+    [selectedFamily, selectedFamilyChildId],
+  );
+
+  const registrationsToShow = useMemo(() => {
+    if (!selectedFamily) return registrations;
+    if (!selectedFamilyChildId) return selectedFamily.children;
+    return selectedFamilyChild ? [selectedFamilyChild] : selectedFamily.children;
+  }, [registrations, selectedFamily, selectedFamilyChildId, selectedFamilyChild]);
 
   const toMediaUrl = (mediaUrl) => {
     if (!mediaUrl) return "";
@@ -106,6 +154,7 @@ export default function AdminDashboard({ user, setPage }) {
           setPaymentConfigForm({
             oneTimeRegistrationFee: paymentConfigData.data.oneTimeRegistrationFee ?? 40000,
             trainingSessionFee: paymentConfigData.data.trainingSessionFee ?? 30000,
+            bundleMonths: paymentConfigData.data.bundleMonths ?? 0,
             monthlyBundleFee: paymentConfigData.data.monthlyBundleFee ?? 0,
             dueDate: toDateInputValue(paymentConfigData.data.dueDate),
           });
@@ -119,6 +168,28 @@ export default function AdminDashboard({ user, setPage }) {
 
     fetchData();
   }, [user]);
+
+  useEffect(() => {
+    if (!familyGroups.length) {
+      setSelectedFamilyKey("");
+      setSelectedFamilyChildId("");
+      return;
+    }
+
+    const currentFamilyExists = familyGroups.some((family) => family.key === selectedFamilyKey);
+    if (!currentFamilyExists) {
+      setSelectedFamilyKey(familyGroups[0].key);
+      setSelectedFamilyChildId("");
+      return;
+    }
+
+    if (selectedFamilyChildId) {
+      const childExists = selectedFamily?.children.some((child) => String(child.id) === selectedFamilyChildId);
+      if (!childExists) {
+        setSelectedFamilyChildId("");
+      }
+    }
+  }, [familyGroups, selectedFamilyKey, selectedFamilyChildId, selectedFamily]);
 
   const handlePasswordChange = (event) => {
     const { name, value } = event.target;
@@ -290,6 +361,7 @@ export default function AdminDashboard({ user, setPage }) {
             BillingInfo: {
               ...registration.BillingInfo,
               paid: true,
+              registrationFeeSettled: true,
               paymentConfirmedAt: new Date().toISOString(),
             },
           };
@@ -322,6 +394,7 @@ export default function AdminDashboard({ user, setPage }) {
 
     const registrationFee = Number(paymentConfigForm.oneTimeRegistrationFee);
     const sessionFee = Number(paymentConfigForm.trainingSessionFee);
+    const months = paymentConfigForm.bundleMonths === "" ? 0 : Number(paymentConfigForm.bundleMonths);
     const bundleFee = paymentConfigForm.monthlyBundleFee === "" ? 0 : Number(paymentConfigForm.monthlyBundleFee);
 
     if (
@@ -329,14 +402,20 @@ export default function AdminDashboard({ user, setPage }) {
       || registrationFee < 0
       || Number.isNaN(sessionFee)
       || sessionFee < 0
+      || Number.isNaN(months)
+      || months < 0
+      || !Number.isInteger(months)
       || Number.isNaN(bundleFee)
       || bundleFee < 0
     ) {
-      setPaymentConfigError("All fee values must be non-negative numbers.");
+      setPaymentConfigError("All fee values must be non-negative numbers, and bundle months must be a whole number.");
       return;
     }
 
-    const totalAmountDue = registrationFee + sessionFee + bundleFee;
+    if ((months > 0 && bundleFee <= 0) || (months === 0 && bundleFee > 0)) {
+      setPaymentConfigError("Bundle months and bundle amount must be set together.");
+      return;
+    }
 
     try {
       const response = await fetch(`${API}/admin/payment-config`, {
@@ -348,6 +427,7 @@ export default function AdminDashboard({ user, setPage }) {
         body: JSON.stringify({
           oneTimeRegistrationFee: registrationFee,
           trainingSessionFee: sessionFee,
+          bundleMonths: months,
           monthlyBundleFee: bundleFee,
           dueDate: paymentConfigForm.dueDate,
         }),
@@ -364,9 +444,12 @@ export default function AdminDashboard({ user, setPage }) {
             ...registration,
             BillingInfo: {
               ...registration.BillingInfo,
-              amountDue: totalAmountDue,
+              amountDue: (registration.BillingInfo?.paymentMode || "one_time") === "bundle"
+                ? (registration.BillingInfo?.registrationFeeSettled ? 0 : registrationFee) + bundleFee
+                : (registration.BillingInfo?.registrationFeeSettled ? 0 : registrationFee) + sessionFee,
               registrationFee,
               trainingSessionFee: sessionFee,
+              bundleMonths: months,
               bundleFee,
               dueDate: paymentConfigForm.dueDate,
             },
@@ -408,6 +491,21 @@ export default function AdminDashboard({ user, setPage }) {
             }}
           >
             Registrations ({registrations.length})
+          </button>
+          <button
+            onClick={() => setActiveTab("paymentSettings")}
+            style={{
+              background: "none",
+              border: "none",
+              padding: "12px 0",
+              borderBottom: activeTab === "paymentSettings" ? `3px solid ${NAVY}` : "none",
+              color: activeTab === "paymentSettings" ? NAVY : "#999",
+              fontWeight: activeTab === "paymentSettings" ? 700 : 600,
+              cursor: "pointer",
+              fontSize: 16,
+            }}
+          >
+            Payment Settings
           </button>
           <button
             onClick={() => setActiveTab("users")}
@@ -458,77 +556,96 @@ export default function AdminDashboard({ user, setPage }) {
 
         {activeTab === "registrations" && (
           <div style={{ background: "white", borderRadius: 16, padding: 24, boxShadow: "0 4px 24px rgba(0,0,0,0.06)", overflowX: "auto" }}>
-            <form onSubmit={handleSavePaymentConfig} style={{ marginBottom: 20, padding: 16, border: "1px solid #e8e8e8", borderRadius: 10 }}>
-              <h3 style={{ margin: "0 0 12px", color: NAVY }}>General Payment Settings</h3>
+            <div style={{ marginBottom: 20, padding: 16, border: "1px solid #e8e8e8", borderRadius: 10 }}>
+              <h3 style={{ margin: "0 0 12px", color: NAVY }}>Family Overview</h3>
               <div style={{ display: "flex", gap: 12, alignItems: "end", flexWrap: "wrap" }}>
                 <div>
-                  <label style={{ display: "block", fontSize: 12, color: "#666", marginBottom: 4 }}>One-time Registration Fee</label>
-                  <input
-                    name="oneTimeRegistrationFee"
-                    type="number"
-                    min="0"
-                    value={paymentConfigForm.oneTimeRegistrationFee}
-                    onChange={handlePaymentConfigInput}
-                    style={{ width: 140, padding: "8px 10px", borderRadius: 6, border: "1px solid #ccc" }}
-                  />
+                  <label style={{ display: "block", fontSize: 12, color: "#666", marginBottom: 4 }}>Parent Account</label>
+                  <select
+                    value={selectedFamilyKey}
+                    onChange={(event) => {
+                      setSelectedFamilyKey(event.target.value);
+                      setSelectedFamilyChildId("");
+                    }}
+                    style={{ minWidth: 280, padding: "8px 10px", borderRadius: 6, border: "1px solid #ccc" }}
+                  >
+                    {familyGroups.map((family) => (
+                      <option key={family.key} value={family.key}>
+                        {family.parentName} ({family.parentEmail})
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div>
-                  <label style={{ display: "block", fontSize: 12, color: "#666", marginBottom: 4 }}>Training Session Fee</label>
-                  <input
-                    name="trainingSessionFee"
-                    type="number"
-                    min="0"
-                    value={paymentConfigForm.trainingSessionFee}
-                    onChange={handlePaymentConfigInput}
-                    style={{ width: 140, padding: "8px 10px", borderRadius: 6, border: "1px solid #ccc" }}
-                  />
+                  <label style={{ display: "block", fontSize: 12, color: "#666", marginBottom: 4 }}>Child Registration</label>
+                  <select
+                    value={selectedFamilyChildId}
+                    onChange={(event) => setSelectedFamilyChildId(event.target.value)}
+                    style={{ minWidth: 220, padding: "8px 10px", borderRadius: 6, border: "1px solid #ccc" }}
+                    disabled={!selectedFamily}
+                  >
+                    <option value="">All children in family</option>
+                    {(selectedFamily?.children || []).map((child) => (
+                      <option key={child.id} value={String(child.id)}>
+                        {child.playerName}
+                      </option>
+                    ))}
+                  </select>
                 </div>
-                <div>
-                  <label style={{ display: "block", fontSize: 12, color: "#666", marginBottom: 4 }}>Monthly Bundle Fee (Optional)</label>
-                  <input
-                    name="monthlyBundleFee"
-                    type="number"
-                    min="0"
-                    value={paymentConfigForm.monthlyBundleFee}
-                    onChange={handlePaymentConfigInput}
-                    style={{ width: 140, padding: "8px 10px", borderRadius: 6, border: "1px solid #ccc" }}
-                  />
-                </div>
-                <div>
-                  <label style={{ display: "block", fontSize: 12, color: "#666", marginBottom: 4 }}>Due Date</label>
-                  <input
-                    name="dueDate"
-                    type="date"
-                    value={paymentConfigForm.dueDate}
-                    onChange={handlePaymentConfigInput}
-                    style={{ padding: "8px 10px", borderRadius: 6, border: "1px solid #ccc" }}
-                  />
-                </div>
-                <button
-                  type="submit"
-                  style={{
-                    background: "#455a64",
-                    color: "white",
-                    border: "none",
-                    padding: "10px 14px",
-                    borderRadius: 6,
-                    fontWeight: 700,
-                    cursor: "pointer",
-                  }}
-                >
-                  Save General Payment
-                </button>
               </div>
-              <div style={{ marginTop: 10, color: NAVY, fontWeight: 700 }}>
-                Total Amount Due: NGN {(
-                  Number(paymentConfigForm.oneTimeRegistrationFee || 0)
-                  + Number(paymentConfigForm.trainingSessionFee || 0)
-                  + Number(paymentConfigForm.monthlyBundleFee || 0)
-                ).toLocaleString()}
-              </div>
-              {paymentConfigError && <div style={{ color: "red", marginTop: 10 }}>{paymentConfigError}</div>}
-              {paymentConfigMessage && <div style={{ color: "green", marginTop: 10 }}>{paymentConfigMessage}</div>}
-            </form>
+
+              {selectedFamily && (
+                <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
+                  <div style={{ background: ASH, borderRadius: 8, padding: 10 }}>
+                    <div style={{ color: "#666", fontSize: 12 }}>Parent</div>
+                    <div style={{ color: NAVY, fontWeight: 800 }}>{selectedFamily.parentName}</div>
+                    <div style={{ color: "#555", fontSize: 12 }}>{selectedFamily.parentEmail}</div>
+                    <div style={{ color: "#555", fontSize: 12 }}>{selectedFamily.parentPhone}</div>
+                  </div>
+                  <div style={{ background: ASH, borderRadius: 8, padding: 10 }}>
+                    <div style={{ color: "#666", fontSize: 12 }}>Children</div>
+                    <div style={{ color: NAVY, fontWeight: 800 }}>{selectedFamily.children.length}</div>
+                    <div style={{ color: "#555", fontSize: 12 }}>
+                      Paid: {selectedFamily.children.filter((child) => child.BillingInfo?.paid).length} | Pending: {selectedFamily.children.filter((child) => !child.BillingInfo?.paid).length}
+                    </div>
+                  </div>
+                  <div style={{ background: ASH, borderRadius: 8, padding: 10 }}>
+                    <div style={{ color: "#666", fontSize: 12 }}>Receipts Submitted</div>
+                    <div style={{ color: NAVY, fontWeight: 800 }}>
+                      {selectedFamily.children.filter((child) => !!child.BillingInfo?.receiptUrl).length}
+                    </div>
+                    <div style={{ color: "#555", fontSize: 12 }}>Awaiting review: {selectedFamily.children.filter((child) => child.BillingInfo?.receiptUrl && !child.BillingInfo?.paid).length}</div>
+                  </div>
+                </div>
+              )}
+
+              {selectedFamily && (
+                <div style={{ marginTop: 12, border: "1px solid #efefef", borderRadius: 8, overflow: "hidden" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                    <thead>
+                      <tr style={{ background: "#f9fafb" }}>
+                        <th style={{ textAlign: "left", padding: 8, color: NAVY, fontSize: 12 }}>Child</th>
+                        <th style={{ textAlign: "left", padding: 8, color: NAVY, fontSize: 12 }}>Payment Mode</th>
+                        <th style={{ textAlign: "left", padding: 8, color: NAVY, fontSize: 12 }}>Amount</th>
+                        <th style={{ textAlign: "left", padding: 8, color: NAVY, fontSize: 12 }}>Receipt Upload</th>
+                        <th style={{ textAlign: "left", padding: 8, color: NAVY, fontSize: 12 }}>Confirmed</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(selectedFamilyChild ? [selectedFamilyChild] : selectedFamily.children).map((child) => (
+                        <tr key={child.id} style={{ borderTop: "1px solid #f0f0f0" }}>
+                          <td style={{ padding: 8, fontSize: 13 }}>{child.playerName}</td>
+                          <td style={{ padding: 8, fontSize: 13 }}>{child.BillingInfo?.paymentMode === "bundle" ? "Bundle" : "One-time"}</td>
+                          <td style={{ padding: 8, fontSize: 13 }}>NGN {Number(child.BillingInfo?.selectedAmount ?? child.BillingInfo?.amountDue ?? 0).toLocaleString()}</td>
+                          <td style={{ padding: 8, fontSize: 13 }}>{child.BillingInfo?.receiptUploadedAt ? new Date(child.BillingInfo.receiptUploadedAt).toLocaleDateString() : "-"}</td>
+                          <td style={{ padding: 8, fontSize: 13 }}>{child.BillingInfo?.paymentConfirmedAt ? new Date(child.BillingInfo.paymentConfirmedAt).toLocaleDateString() : "-"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
 
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
@@ -545,7 +662,7 @@ export default function AdminDashboard({ user, setPage }) {
                 </tr>
               </thead>
               <tbody>
-                {registrations.map((reg) => (
+                {registrationsToShow.map((reg) => (
                   <tr key={reg.id} style={{ borderBottom: "1px solid #eee" }}>
                     <td style={{ padding: 12, color: "#333" }}>{reg.playerName}</td>
                     <td style={{ padding: 12, color: "#333" }}>{reg.age}</td>
@@ -597,6 +714,104 @@ export default function AdminDashboard({ user, setPage }) {
             </table>
             {registrationActionError && <div style={{ color: "red", marginTop: 12 }}>{registrationActionError}</div>}
             {registrationActionMessage && <div style={{ color: "green", marginTop: 12 }}>{registrationActionMessage}</div>}
+          </div>
+        )}
+
+        {activeTab === "paymentSettings" && (
+          <div style={{ background: "white", borderRadius: 16, padding: 24, boxShadow: "0 4px 24px rgba(0,0,0,0.06)" }}>
+            <form onSubmit={handleSavePaymentConfig} style={{ padding: 16, border: "1px solid #e8e8e8", borderRadius: 10 }}>
+              <h3 style={{ margin: "0 0 12px", color: NAVY }}>General Payment Settings</h3>
+              <div style={{ display: "flex", gap: 12, alignItems: "end", flexWrap: "wrap" }}>
+                <div>
+                  <label style={{ display: "block", fontSize: 12, color: "#666", marginBottom: 4 }}>One-time Registration Fee</label>
+                  <input
+                    name="oneTimeRegistrationFee"
+                    type="number"
+                    min="0"
+                    value={paymentConfigForm.oneTimeRegistrationFee}
+                    onChange={handlePaymentConfigInput}
+                    style={{ width: 160, padding: "8px 10px", borderRadius: 6, border: "1px solid #ccc" }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: 12, color: "#666", marginBottom: 4 }}>Training Session Fee</label>
+                  <input
+                    name="trainingSessionFee"
+                    type="number"
+                    min="0"
+                    value={paymentConfigForm.trainingSessionFee}
+                    onChange={handlePaymentConfigInput}
+                    style={{ width: 160, padding: "8px 10px", borderRadius: 6, border: "1px solid #ccc" }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: 12, color: "#666", marginBottom: 4 }}>Bundle Months (Optional)</label>
+                  <input
+                    name="bundleMonths"
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={paymentConfigForm.bundleMonths}
+                    onChange={handlePaymentConfigInput}
+                    style={{ width: 160, padding: "8px 10px", borderRadius: 6, border: "1px solid #ccc" }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: 12, color: "#666", marginBottom: 4 }}>Bundle Amount (Optional)</label>
+                  <input
+                    name="monthlyBundleFee"
+                    type="number"
+                    min="0"
+                    value={paymentConfigForm.monthlyBundleFee}
+                    onChange={handlePaymentConfigInput}
+                    style={{ width: 160, padding: "8px 10px", borderRadius: 6, border: "1px solid #ccc" }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: 12, color: "#666", marginBottom: 4 }}>Due Date</label>
+                  <input
+                    name="dueDate"
+                    type="date"
+                    value={paymentConfigForm.dueDate}
+                    onChange={handlePaymentConfigInput}
+                    style={{ padding: "8px 10px", borderRadius: 6, border: "1px solid #ccc" }}
+                  />
+                </div>
+                <button
+                  type="submit"
+                  style={{
+                    background: "#455a64",
+                    color: "white",
+                    border: "none",
+                    padding: "10px 14px",
+                    borderRadius: 6,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                  }}
+                >
+                  Save General Payment
+                </button>
+              </div>
+              <div style={{ marginTop: 10, color: NAVY, fontWeight: 700 }}>
+                One-time Total (Registration + Training): NGN {(
+                  Number(paymentConfigForm.oneTimeRegistrationFee || 0)
+                  + Number(paymentConfigForm.trainingSessionFee || 0)
+                ).toLocaleString()}
+              </div>
+              <div style={{ marginTop: 4, color: NAVY, fontWeight: 700 }}>
+                Bundle Total (Registration + Bundle): NGN {(
+                  Number(paymentConfigForm.oneTimeRegistrationFee || 0)
+                  + Number(paymentConfigForm.monthlyBundleFee || 0)
+                ).toLocaleString()}
+              </div>
+              <div style={{ marginTop: 4, color: "#666", fontSize: 13 }}>
+                Bundle format: {Number(paymentConfigForm.bundleMonths || 0) > 0 && Number(paymentConfigForm.monthlyBundleFee || 0) > 0
+                  ? `${paymentConfigForm.bundleMonths} months = NGN ${Number(paymentConfigForm.monthlyBundleFee).toLocaleString()}`
+                  : "Not configured"}
+              </div>
+              {paymentConfigError && <div style={{ color: "red", marginTop: 10 }}>{paymentConfigError}</div>}
+              {paymentConfigMessage && <div style={{ color: "green", marginTop: 10 }}>{paymentConfigMessage}</div>}
+            </form>
           </div>
         )}
 

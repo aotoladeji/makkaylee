@@ -6,32 +6,137 @@ import { ASH, NAVY } from "../constants/theme";
 
 export default function DashboardPage({ user, setPage }) {
   const [profile, setProfile] = useState(null);
+  const [selectedRegistrationId, setSelectedRegistrationId] = useState(() => localStorage.getItem("activeRegistrationId") || "");
   const [error, setError] = useState("");
+  const [childActionError, setChildActionError] = useState("");
+  const [childActionMessage, setChildActionMessage] = useState("");
+  const [editingChildId, setEditingChildId] = useState(null);
+  const [editingChildForm, setEditingChildForm] = useState({
+    playerName: "",
+    age: "",
+    gender: "",
+    program: "",
+    medical: "",
+  });
+  const [busyChildId, setBusyChildId] = useState(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     if (!user) return;
 
-    fetch(`${API}/profile`, {
+    const profileUrl = selectedRegistrationId
+      ? `${API}/profile?registrationId=${selectedRegistrationId}`
+      : `${API}/profile`;
+
+    fetch(profileUrl, {
       headers: { Authorization: `Bearer ${user.token}` },
     })
       .then((response) => response.json())
       .then((data) => {
         if (data.error) setError(data.error);
-        else setProfile(data);
+        else {
+          setProfile(data);
+          if (data.registration?.id) {
+            const registrationIdValue = String(data.registration.id);
+            setSelectedRegistrationId(registrationIdValue);
+            localStorage.setItem("activeRegistrationId", registrationIdValue);
+          }
+        }
       })
       .catch(() => setError("Failed to load profile info"));
-  }, [user]);
+  }, [user, selectedRegistrationId, reloadKey]);
+
+  const startEditChild = (child) => {
+    setChildActionError("");
+    setChildActionMessage("");
+    setEditingChildId(child.id);
+    setEditingChildForm({
+      playerName: child.playerName || "",
+      age: child.age || "",
+      gender: child.gender || "",
+      program: child.program || "",
+      medical: child.medical || "",
+    });
+  };
+
+  const saveChildEdit = async (childId) => {
+    setChildActionError("");
+    setChildActionMessage("");
+    setBusyChildId(childId);
+
+    try {
+      const response = await fetch(`${API}/children/${childId}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${user.token}`,
+        },
+        body: JSON.stringify(editingChildForm),
+      });
+
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Failed to update child");
+
+      setEditingChildId(null);
+      setChildActionMessage("Child profile updated successfully.");
+      setReloadKey((current) => current + 1);
+    } catch (editError) {
+      setChildActionError(editError.message);
+    } finally {
+      setBusyChildId(null);
+    }
+  };
+
+  const deleteChild = async (childId, childName) => {
+    const confirmed = window.confirm(`Delete ${childName}? This will remove the child profile and billing record.`);
+    if (!confirmed) return;
+
+    setChildActionError("");
+    setChildActionMessage("");
+    setBusyChildId(childId);
+
+    try {
+      const response = await fetch(`${API}/children/${childId}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${user.token}`,
+        },
+      });
+
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Failed to delete child");
+
+      if (String(childId) === selectedRegistrationId) {
+        localStorage.removeItem("activeRegistrationId");
+        setSelectedRegistrationId("");
+      }
+
+      setChildActionMessage("Child profile deleted successfully.");
+      setReloadKey((current) => current + 1);
+    } catch (deleteError) {
+      setChildActionError(deleteError.message);
+    } finally {
+      setBusyChildId(null);
+    }
+  };
 
   if (!user) return <div style={{ padding: 40 }}>Please log in.</div>;
   if (error) return <div style={{ color: "red", padding: 40 }}>{error}</div>;
   if (!profile) return <div style={{ padding: 40 }}>Loading profile...</div>;
 
-  const { registration, user: parent, billing } = profile;
+  const { registration, user: parent, billing, children = [] } = profile;
   const registrationFee = billing?.registrationFee ?? 40000;
+  const registrationFeeSettled = !!billing?.registrationFeeSettled;
+  const effectiveRegistrationFee = registrationFeeSettled ? 0 : registrationFee;
   const trainingSessionFee = billing?.trainingSessionFee ?? 30000;
+  const bundleMonths = billing?.bundleMonths ?? 0;
   const bundleFee = billing?.bundleFee ?? 0;
-  const hasBundleFee = bundleFee > 0;
-  const fallbackTotal = registrationFee + trainingSessionFee + bundleFee;
+  const hasBundleFee = bundleMonths > 0 && bundleFee > 0;
+  const paymentMode = billing?.paymentMode || "one_time";
+  const paymentModeLabel = paymentMode === "bundle" ? "Bundle Payment" : "One-time Payment";
+  const fallbackTotal = paymentMode === "bundle"
+    ? effectiveRegistrationFee + bundleFee
+    : effectiveRegistrationFee + trainingSessionFee;
   const amountDue = billing?.amountDue ?? fallbackTotal;
   const dueDateLabel = billing?.dueDate ? new Date(billing.dueDate).toLocaleDateString() : "Not set";
   const hasUploadedReceipt = !!billing?.receiptUrl;
@@ -53,10 +158,29 @@ export default function DashboardPage({ user, setPage }) {
             <p style={{ color: ASH, fontWeight: 700, letterSpacing: 2, fontSize: 12, textTransform: "uppercase", margin: "0 0 4px" }}>Registered Member</p>
             <h1 style={{ color: "white", fontFamily: "'Playfair Display', Georgia, serif", fontSize: "clamp(24px, 4vw, 40px)", fontWeight: 900, margin: "0 0 8px" }}>{registration?.playerName}</h1>
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+              {children.length > 1 && (
+                <select
+                  value={selectedRegistrationId}
+                  onChange={(event) => {
+                    setSelectedRegistrationId(event.target.value);
+                    localStorage.setItem("activeRegistrationId", event.target.value);
+                  }}
+                  style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid rgba(255,255,255,0.5)", background: "rgba(255,255,255,0.15)", color: "white", fontWeight: 700 }}
+                >
+                  {children.map((child) => (
+                    <option key={child.id} value={child.id} style={{ color: "#111" }}>
+                      {child.playerName}
+                    </option>
+                  ))}
+                </select>
+              )}
               <Badge>{registration?.program}</Badge>
               <span style={{ background: paymentStatusColor, color: "white", fontSize: 11, fontWeight: 800, letterSpacing: 1, padding: "4px 10px", borderRadius: 3, textTransform: "uppercase" }}>
                 {paymentStatusLabel}
               </span>
+              <button onClick={() => setPage("Register")} style={{ background: "rgba(255,255,255,0.2)", color: "white", border: "1px solid rgba(255,255,255,0.5)", padding: "6px 12px", borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                Add Child
+              </button>
               <button onClick={() => setPage("EditProfile")} style={{ background: "rgba(255,255,255,0.2)", color: "white", border: "1px solid rgba(255,255,255,0.5)", padding: "6px 12px", borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: "pointer", marginLeft: "auto" }}>
                 Edit Profile
               </button>
@@ -99,11 +223,13 @@ export default function DashboardPage({ user, setPage }) {
             <div style={{ textAlign: "center", padding: "16px 0" }}>
               <div style={{ fontWeight: 800, fontSize: 18, color: billing?.paid ? "#2E7D32" : hasUploadedReceipt ? "#1565c0" : "#E65100" }}>{paymentStatusLabel}</div>
               <div style={{ color: "#888", fontSize: 14, marginTop: 4 }}>
-                Registration fee: <strong>NGN {registrationFee.toLocaleString()}</strong>
+                Registration fee: <strong>{registrationFeeSettled ? "Already paid" : `NGN ${registrationFee.toLocaleString()}`}</strong>
                 <br />
                 Training session fee: <strong>NGN {trainingSessionFee.toLocaleString()}</strong>
                 <br />
-                Bundle fee (optional): <strong>{hasBundleFee ? `NGN ${bundleFee.toLocaleString()}` : "Not applied"}</strong>
+                Bundle format: <strong>{hasBundleFee ? `${bundleMonths} months = NGN ${bundleFee.toLocaleString()}` : "Not applied"}</strong>
+                <br />
+                Payment option: <strong>{paymentModeLabel}</strong>
                 <br />
                 <span style={{ color: NAVY, fontWeight: 900 }}>Amount Due: NGN {amountDue.toLocaleString()}</span>
                 <br />
@@ -121,6 +247,137 @@ export default function DashboardPage({ user, setPage }) {
               </button>
             )}
           </div>
+        </div>
+
+        <div style={{ marginTop: 24, background: "white", borderRadius: 16, padding: 24, boxShadow: "0 4px 24px rgba(0,0,0,0.06)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
+            <h3 style={{ color: NAVY, fontFamily: "'Playfair Display', Georgia, serif", fontSize: 24, margin: 0 }}>My Children</h3>
+            <button
+              onClick={() => setPage("Register")}
+              style={{ background: NAVY, color: "white", border: "none", padding: "10px 14px", borderRadius: 8, fontWeight: 700, cursor: "pointer" }}
+            >
+              Add Another Child
+            </button>
+          </div>
+
+          <div style={{ display: "grid", gap: 12 }}>
+            {children.map((child) => {
+              const childPaymentLabel = child.billing?.paid
+                ? "Paid"
+                : child.billing?.receiptUploadedAt
+                  ? "Receipt Submitted"
+                  : "Pending Payment";
+
+              return (
+                <div key={child.id} style={{ border: "1px solid #e8e8e8", borderRadius: 10, padding: 14 }}>
+                  {editingChildId === child.id ? (
+                    <>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
+                        <input
+                          value={editingChildForm.playerName}
+                          onChange={(event) => setEditingChildForm((current) => ({ ...current, playerName: event.target.value }))}
+                          placeholder="Player full name"
+                          style={{ padding: "9px 10px", borderRadius: 6, border: "1px solid #ccc" }}
+                        />
+                        <input
+                          type="number"
+                          value={editingChildForm.age}
+                          onChange={(event) => setEditingChildForm((current) => ({ ...current, age: event.target.value }))}
+                          placeholder="Age"
+                          min="4"
+                          max="15"
+                          style={{ padding: "9px 10px", borderRadius: 6, border: "1px solid #ccc" }}
+                        />
+                        <select
+                          value={editingChildForm.gender}
+                          onChange={(event) => setEditingChildForm((current) => ({ ...current, gender: event.target.value }))}
+                          style={{ padding: "9px 10px", borderRadius: 6, border: "1px solid #ccc" }}
+                        >
+                          <option value="">Gender</option>
+                          <option value="Male">Male</option>
+                          <option value="Female">Female</option>
+                          <option value="Other">Other</option>
+                        </select>
+                        <select
+                          value={editingChildForm.program}
+                          onChange={(event) => setEditingChildForm((current) => ({ ...current, program: event.target.value }))}
+                          style={{ padding: "9px 10px", borderRadius: 6, border: "1px solid #ccc" }}
+                        >
+                          <option value="">Programme</option>
+                          <option value="Junior Stars (4-8)">Junior Stars (4-8)</option>
+                          <option value="Intermediate (9-12)">Intermediate (9-12)</option>
+                          <option value="Elite (13-15)">Elite (13-15)</option>
+                        </select>
+                      </div>
+                      <textarea
+                        value={editingChildForm.medical}
+                        onChange={(event) => setEditingChildForm((current) => ({ ...current, medical: event.target.value }))}
+                        placeholder="Medical information"
+                        rows={2}
+                        style={{ marginTop: 10, width: "100%", padding: "9px 10px", borderRadius: 6, border: "1px solid #ccc" }}
+                      />
+                      <div style={{ marginTop: 10, display: "flex", gap: 8 }}>
+                        <button
+                          onClick={() => saveChildEdit(child.id)}
+                          disabled={busyChildId === child.id}
+                          style={{ background: NAVY, color: "white", border: "none", padding: "8px 12px", borderRadius: 6, fontWeight: 700, cursor: "pointer" }}
+                        >
+                          {busyChildId === child.id ? "Saving..." : "Save"}
+                        </button>
+                        <button
+                          onClick={() => setEditingChildId(null)}
+                          style={{ background: "#eee", color: "#333", border: "none", padding: "8px 12px", borderRadius: 6, fontWeight: 700, cursor: "pointer" }}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                        <div>
+                          <div style={{ color: NAVY, fontWeight: 900 }}>{child.playerName}</div>
+                          <div style={{ color: "#666", fontSize: 13 }}>{child.age} yrs • {child.gender} • {child.program}</div>
+                          <div style={{ color: "#777", fontSize: 12, marginTop: 4 }}>
+                            Payment: <strong>{childPaymentLabel}</strong>
+                            {child.billing?.selectedAmount ? ` • NGN ${Number(child.billing.selectedAmount).toLocaleString()}` : ""}
+                            {child.billing?.dueDate ? ` • Due ${new Date(child.billing.dueDate).toLocaleDateString()}` : ""}
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                          <button
+                            onClick={() => {
+                              setSelectedRegistrationId(String(child.id));
+                              localStorage.setItem("activeRegistrationId", String(child.id));
+                            }}
+                            style={{ background: "#edf4ff", color: NAVY, border: "none", padding: "8px 12px", borderRadius: 6, fontWeight: 700, cursor: "pointer" }}
+                          >
+                            View
+                          </button>
+                          <button
+                            onClick={() => startEditChild(child)}
+                            style={{ background: "#f3f4f6", color: "#374151", border: "none", padding: "8px 12px", borderRadius: 6, fontWeight: 700, cursor: "pointer" }}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => deleteChild(child.id, child.playerName)}
+                            disabled={busyChildId === child.id}
+                            style={{ background: "#ffebee", color: "#b71c1c", border: "none", padding: "8px 12px", borderRadius: 6, fontWeight: 700, cursor: "pointer" }}
+                          >
+                            {busyChildId === child.id ? "Deleting..." : "Remove"}
+                          </button>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {childActionError && <div style={{ color: "#b71c1c", marginTop: 12 }}>{childActionError}</div>}
+          {childActionMessage && <div style={{ color: "#2e7d32", marginTop: 12 }}>{childActionMessage}</div>}
         </div>
 
         <div style={{ marginTop: 24, background: `linear-gradient(135deg, ${NAVY}, #1a3168)`, borderRadius: 16, padding: "32px 40px" }}>

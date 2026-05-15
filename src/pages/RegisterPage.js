@@ -5,7 +5,8 @@ import { API } from "../constants/api";
 import { BRAND } from "../constants/brand";
 import { ASH, NAVY } from "../constants/theme";
 
-export default function RegisterPage({ setPage }) {
+export default function RegisterPage({ user, setPage }) {
+  const isAddingChild = !!user?.token && !user?.isAdmin;
   const [form, setForm] = useState({
     username: "",
     email: "",
@@ -31,11 +32,13 @@ export default function RegisterPage({ setPage }) {
 
   const validate = () => {
     const nextErrors = {};
-    if (!form.username.trim()) nextErrors.username = "Required";
-    if (!form.email.trim()) nextErrors.email = "Required";
-    if (!form.password.trim()) nextErrors.password = "Required";
-    if (!form.parentName.trim()) nextErrors.parentName = "Required";
-    if (!form.phone.trim()) nextErrors.phone = "Required";
+    if (!isAddingChild) {
+      if (!form.username.trim()) nextErrors.username = "Required";
+      if (!form.email.trim()) nextErrors.email = "Required";
+      if (!form.password.trim()) nextErrors.password = "Required";
+      if (!form.parentName.trim()) nextErrors.parentName = "Required";
+      if (!form.phone.trim()) nextErrors.phone = "Required";
+    }
     if (!form.playerName.trim()) nextErrors.playerName = "Required";
     if (!form.age || form.age < 4 || form.age > 15) nextErrors.age = "Age must be 4-15";
     if (!form.gender) nextErrors.gender = "Required";
@@ -52,10 +55,25 @@ export default function RegisterPage({ setPage }) {
 
     setError("");
     try {
-      const response = await fetch(`${API}/register`, {
+      const endpoint = isAddingChild ? `${API}/children` : `${API}/register`;
+      const payload = isAddingChild
+        ? {
+          playerName: form.playerName,
+          age: form.age,
+          gender: form.gender,
+          program: form.program,
+          medical: form.medical,
+          consent: form.consent,
+        }
+        : form;
+
+      const response = await fetch(endpoint, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        headers: {
+          "Content-Type": "application/json",
+          ...(isAddingChild ? { Authorization: `Bearer ${user.token}` } : {}),
+        },
+        body: JSON.stringify(payload),
       });
       const data = await response.json();
       if (!response.ok) {
@@ -71,10 +89,10 @@ export default function RegisterPage({ setPage }) {
   if (success) {
     return (
       <div style={{ padding: 40, textAlign: "center" }}>
-        <h2 style={{ color: NAVY }}>Registration successful!</h2>
-        <p>You can now log in.</p>
-        <button onClick={() => setPage("Login")} style={{ background: NAVY, color: ASH, border: "none", padding: "12px 28px", borderRadius: 8, fontWeight: 800, cursor: "pointer" }}>
-          Go to Login
+        <h2 style={{ color: NAVY }}>{isAddingChild ? "Child added successfully!" : "Registration successful!"}</h2>
+        <p>{isAddingChild ? "Your new child profile has been created." : "You can now log in."}</p>
+        <button onClick={() => setPage(isAddingChild ? "Dashboard" : "Login")} style={{ background: NAVY, color: ASH, border: "none", padding: "12px 28px", borderRadius: 8, fontWeight: 800, cursor: "pointer" }}>
+          {isAddingChild ? "Go to Dashboard" : "Go to Login"}
         </button>
       </div>
     );
@@ -84,21 +102,29 @@ export default function RegisterPage({ setPage }) {
     <div style={{ paddingTop: 70, background: ASH, minHeight: "100vh" }}>
       <div style={{ background: `linear-gradient(135deg, ${NAVY}, #1a3168)`, padding: "60px 24px", textAlign: "center" }}>
         <Logo size={52} />
-        <h1 style={{ color: "white", fontFamily: "'Playfair Display', Georgia, serif", fontSize: "clamp(28px, 4vw, 48px)", fontWeight: 900, margin: "16px 0 8px" }}>Join the Academy</h1>
-        <p style={{ color: "rgba(255,255,255,0.7)", fontSize: 16 }}>Complete the form below to begin your child&apos;s football journey</p>
+        <h1 style={{ color: "white", fontFamily: "'Playfair Display', Georgia, serif", fontSize: "clamp(28px, 4vw, 48px)", fontWeight: 900, margin: "16px 0 8px" }}>
+          {isAddingChild ? "Add Another Child" : "Join the Academy"}
+        </h1>
+        <p style={{ color: "rgba(255,255,255,0.7)", fontSize: 16 }}>
+          {isAddingChild ? "Add a new child profile under your existing parent account" : "Complete the form below to begin your child&apos;s football journey"}
+        </p>
       </div>
 
       <div style={{ maxWidth: 860, margin: "0 auto", padding: "60px 24px" }}>
         <form onSubmit={handleSubmit} style={{ background: "white", borderRadius: 20, padding: 48, boxShadow: "0 8px 48px rgba(0,0,0,0.08)" }}>
-          <h3 style={{ color: NAVY, fontFamily: "'Playfair Display', Georgia, serif", fontSize: 22, marginBottom: 4 }}>Parent / Guardian Details</h3>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 32px", marginBottom: 36 }} className="form-grid">
-            <Input label="Username (for login)" name="username" value={form.username} onChange={handleChange} required />
-            <Input label="Email (for login)" name="email" value={form.email} onChange={handleChange} required type="email" />
-            <Input label="Password" name="password" value={form.password} onChange={handleChange} required type="password" />
-            <Input label="Parent/Guardian Full Name" name="parentName" value={form.parentName} onChange={handleChange} required />
-            <Input label="Phone Number" name="phone" type="tel" value={form.phone} onChange={handleChange} required />
-            <Input label="Home Address" name="address" value={form.address} onChange={handleChange} />
-          </div>
+          {!isAddingChild && (
+            <>
+              <h3 style={{ color: NAVY, fontFamily: "'Playfair Display', Georgia, serif", fontSize: 22, marginBottom: 4 }}>Parent / Guardian Details</h3>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 32px", marginBottom: 36 }} className="form-grid">
+                <Input label="Username (for login)" name="username" value={form.username} onChange={handleChange} required />
+                <Input label="Email (for login)" name="email" value={form.email} onChange={handleChange} required type="email" />
+                <Input label="Password" name="password" value={form.password} onChange={handleChange} required type="password" />
+                <Input label="Parent/Guardian Full Name" name="parentName" value={form.parentName} onChange={handleChange} required />
+                <Input label="Phone Number" name="phone" type="tel" value={form.phone} onChange={handleChange} required />
+                <Input label="Home Address" name="address" value={form.address} onChange={handleChange} />
+              </div>
+            </>
+          )}
 
           <h3 style={{ color: NAVY, fontFamily: "'Playfair Display', Georgia, serif", fontSize: 22, marginBottom: 4 }}>Player Information</h3>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 32px", marginBottom: 36 }} className="form-grid">

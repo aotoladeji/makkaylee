@@ -102,19 +102,87 @@ app.post('/api/register', async (req, res) => {
       playerName, age, gender, program, medical, consent, userId: user.id
     });
     const paymentConfig = await getOrCreatePaymentConfig();
-    const totalAmountDue = Number(paymentConfig.oneTimeRegistrationFee || 0) + Number(paymentConfig.trainingSessionFee || 0) + Number(paymentConfig.monthlyBundleFee || 0);
+    const paymentMode = 'one_time';
+    const totalAmountDue = computeAmountByMode(
+      paymentConfig.oneTimeRegistrationFee,
+      paymentConfig.trainingSessionFee,
+      paymentConfig.monthlyBundleFee,
+      paymentMode,
+      true,
+    );
 
     // Create billing info for this registration
     await BillingInfo.create({
       registrationId: registration.id,
       amountDue: totalAmountDue,
       registrationFee: paymentConfig.oneTimeRegistrationFee,
+      registrationFeeSettled: false,
       trainingSessionFee: paymentConfig.trainingSessionFee,
+      bundleMonths: paymentConfig.bundleMonths,
       bundleFee: paymentConfig.monthlyBundleFee,
+      paymentMode,
+      selectedAmount: totalAmountDue,
       dueDate: paymentConfig.dueDate,
       paid: false
     });
     res.json({ message: 'Registration successful' });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Add another child registration under an existing parent account
+app.post('/api/children', auth, async (req, res) => {
+  try {
+    const {
+      playerName, age, gender, program, medical, consent,
+    } = req.body;
+
+    if (!playerName || age === undefined || !gender || !program || consent !== true) {
+      return res.status(400).json({ error: 'playerName, age, gender, program, and consent are required' });
+    }
+
+    const parent = await User.findByPk(req.user.id);
+    if (!parent) return res.status(404).json({ error: 'Parent account not found' });
+
+    const paymentConfig = await getOrCreatePaymentConfig();
+    const paymentMode = 'one_time';
+    const totalAmountDue = computeAmountByMode(
+      paymentConfig.oneTimeRegistrationFee,
+      paymentConfig.trainingSessionFee,
+      paymentConfig.monthlyBundleFee,
+      paymentMode,
+      true,
+    );
+
+    const registration = await Registration.create({
+      playerName,
+      age,
+      gender,
+      program,
+      medical,
+      consent,
+      userId: parent.id,
+    });
+
+    await BillingInfo.create({
+      registrationId: registration.id,
+      amountDue: totalAmountDue,
+      registrationFee: paymentConfig.oneTimeRegistrationFee,
+      registrationFeeSettled: false,
+      trainingSessionFee: paymentConfig.trainingSessionFee,
+      bundleMonths: paymentConfig.bundleMonths,
+      bundleFee: paymentConfig.monthlyBundleFee,
+      paymentMode,
+      selectedAmount: totalAmountDue,
+      dueDate: paymentConfig.dueDate,
+      paid: false,
+    });
+
+    res.json({
+      message: 'Child registration added successfully',
+      data: { registrationId: registration.id },
+    });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -170,10 +238,24 @@ async function getOrCreatePaymentConfig() {
   return PaymentConfig.create({
     oneTimeRegistrationFee: 40000,
     trainingSessionFee: 30000,
+    bundleMonths: 0,
     monthlyBundleFee: 0,
     dueDate: new Date(),
     isActive: true,
   });
+}
+
+function computeAmountByMode(registrationFee, trainingSessionFee, bundleFee, paymentMode, includeRegistrationFee = true) {
+  const registration = Number(registrationFee || 0);
+  const training = Number(trainingSessionFee || 0);
+  const bundle = Number(bundleFee || 0);
+  const registrationPart = includeRegistrationFee ? registration : 0;
+
+  if (paymentMode === 'bundle') {
+    return registrationPart + bundle;
+  }
+
+  return registrationPart + training;
 }
 
 // Public: current training event notification
@@ -212,11 +294,19 @@ app.get('/api/gallery', async (req, res) => {
 app.get('/api/payment-config', async (req, res) => {
   try {
     const config = await getOrCreatePaymentConfig();
-    const totalAmountDue = Number(config.oneTimeRegistrationFee || 0) + Number(config.trainingSessionFee || 0) + Number(config.monthlyBundleFee || 0);
+    const oneTimeTotal = computeAmountByMode(config.oneTimeRegistrationFee, config.trainingSessionFee, config.monthlyBundleFee, 'one_time', true);
+    const bundleTotal = computeAmountByMode(config.oneTimeRegistrationFee, config.trainingSessionFee, config.monthlyBundleFee, 'bundle', true);
+    const recurringOneTimeTotal = computeAmountByMode(config.oneTimeRegistrationFee, config.trainingSessionFee, config.monthlyBundleFee, 'one_time', false);
+    const recurringBundleTotal = computeAmountByMode(config.oneTimeRegistrationFee, config.trainingSessionFee, config.monthlyBundleFee, 'bundle', false);
+    const hasBundleOption = Number(config.monthlyBundleFee || 0) > 0;
     res.json({
       data: {
         ...config.toJSON(),
-        totalAmountDue,
+        oneTimeTotal,
+        bundleTotal,
+        recurringOneTimeTotal,
+        recurringBundleTotal,
+        hasBundleOption,
       },
     });
   } catch (err) {
@@ -227,11 +317,32 @@ app.get('/api/payment-config', async (req, res) => {
 // Get billing info (user)
 app.get('/api/billing', auth, async (req, res) => {
   try {
-    // Find the user's registration and billing info
-    const registration = await Registration.findOne({ where: { userId: req.user.id } });
-    if (!registration) return res.status(404).json({ error: 'Registration not found' });
-    const billing = await BillingInfo.findOne({ where: { registrationId: registration.id } });
-    res.json(billing);
+    const requestedRegistrationId = Number(req.query.registrationId);
+    const registrations = await Registration.findAll({
+      where: { userId: req.user.id },
+      order: [['createdAt', 'DESC']],
+    });
+
+    if (!registrations.length) return res.status(404).json({ error: 'Registration not found' });
+
+    const selectedRegistration = Number.isNaN(requestedRegistrationId)
+      ? registrations[0]
+      : registrations.find((registration) => registration.id === requestedRegistrationId);
+
+    if (!selectedRegistration) {
+      return res.status(404).json({ error: 'Requested child registration not found' });
+    }
+
+    const billing = await BillingInfo.findOne({ where: { registrationId: selectedRegistration.id } });
+    res.json({
+      ...billing.toJSON(),
+      registrationId: selectedRegistration.id,
+      playerName: selectedRegistration.playerName,
+      children: registrations.map((registration) => ({
+        id: registration.id,
+        playerName: registration.playerName,
+      })),
+    });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -241,22 +352,50 @@ app.get('/api/billing', auth, async (req, res) => {
 app.post('/api/billing/receipt', auth, receiptUpload.single('receipt'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'Receipt file is required' });
+    const paymentMode = req.body.paymentMode || 'one_time';
+    if (!['one_time', 'bundle'].includes(paymentMode)) {
+      return res.status(400).json({ error: 'paymentMode must be one_time or bundle' });
+    }
 
-    const registration = await Registration.findOne({ where: { userId: req.user.id } });
+    const requestedRegistrationId = Number(req.body.registrationId);
+    const registrationWhere = { userId: req.user.id };
+    if (!Number.isNaN(requestedRegistrationId)) {
+      registrationWhere.id = requestedRegistrationId;
+    }
+
+    const registration = await Registration.findOne({ where: registrationWhere, order: [['createdAt', 'DESC']] });
     if (!registration) return res.status(404).json({ error: 'Registration not found' });
 
     const billing = await BillingInfo.findOne({ where: { registrationId: registration.id } });
     if (!billing) return res.status(404).json({ error: 'Billing record not found' });
+
+    if (paymentMode === 'bundle') {
+      const hasBundle = Number(billing.bundleFee || 0) > 0;
+      if (!hasBundle) {
+        return res.status(400).json({ error: 'Bundle payment is not configured at the moment' });
+      }
+    }
 
     if (billing.receiptUrl) {
       const oldPath = path.join(__dirname, billing.receiptUrl.replace('/uploads/', 'uploads/'));
       if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
     }
 
+    const selectedAmount = computeAmountByMode(
+      billing.registrationFee,
+      billing.trainingSessionFee,
+      billing.bundleFee,
+      paymentMode,
+      !billing.registrationFeeSettled,
+    );
+
     await billing.update({
       receiptUrl: `/uploads/${req.file.filename}`,
       receiptMimeType: req.file.mimetype,
       receiptUploadedAt: new Date(),
+      paymentMode,
+      selectedAmount,
+      amountDue: selectedAmount,
       paymentConfirmedAt: null,
       paid: false,
     });
@@ -267,7 +406,10 @@ app.post('/api/billing/receipt', auth, receiptUpload.single('receipt'), async (r
 
     res.json({
       message: 'Receipt uploaded successfully',
-      data: billing,
+      data: {
+        ...billing.toJSON(),
+        registrationId: registration.id,
+      },
     });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -282,12 +424,58 @@ app.get('/api/profile', auth, async (req, res) => {
       attributes: { exclude: ['password'] },
     });
     if (!user) return res.status(404).json({ error: 'User not found' });
-    // Get registration and billing
-    const registration = await Registration.findOne({ where: { userId: user.id } });
+    const requestedRegistrationId = Number(req.query.registrationId);
+    const registrations = await Registration.findAll({
+      where: { userId: user.id },
+      order: [['createdAt', 'DESC']],
+    });
+
+    const selectedRegistration = Number.isNaN(requestedRegistrationId)
+      ? registrations[0] || null
+      : registrations.find((registrationItem) => registrationItem.id === requestedRegistrationId) || null;
+
     let billing = null;
-    if (registration) {
-      billing = await BillingInfo.findOne({ where: { registrationId: registration.id } });
+    if (selectedRegistration) {
+      billing = await BillingInfo.findOne({ where: { registrationId: selectedRegistration.id } });
     }
+
+    const childrenWithBilling = await Promise.all(registrations.map(async (registrationItem) => {
+      const childBilling = await BillingInfo.findOne({ where: { registrationId: registrationItem.id } });
+      return {
+        id: registrationItem.id,
+        playerName: registrationItem.playerName,
+        age: registrationItem.age,
+        gender: registrationItem.gender,
+        program: registrationItem.program,
+        medical: registrationItem.medical,
+        status: registrationItem.status,
+        createdAt: registrationItem.createdAt,
+        billing: childBilling
+          ? {
+            amountDue: childBilling.amountDue,
+            dueDate: childBilling.dueDate,
+            paid: childBilling.paid,
+            paymentMode: childBilling.paymentMode,
+            selectedAmount: childBilling.selectedAmount,
+            receiptUploadedAt: childBilling.receiptUploadedAt,
+            paymentConfirmedAt: childBilling.paymentConfirmedAt,
+          }
+          : null,
+      };
+    }));
+
+    const children = childrenWithBilling.map((registrationItem) => ({
+      id: registrationItem.id,
+      playerName: registrationItem.playerName,
+      age: registrationItem.age,
+      gender: registrationItem.gender,
+      program: registrationItem.program,
+      medical: registrationItem.medical,
+      status: registrationItem.status,
+      createdAt: registrationItem.createdAt,
+      billing: registrationItem.billing,
+    }));
+
     res.json({
       user: {
         parentName: user.parentName,
@@ -295,11 +483,91 @@ app.get('/api/profile', auth, async (req, res) => {
         email: user.email,
         address: user.address,
       },
-      registration,
+      registration: selectedRegistration,
       billing,
+      children,
     });
   } catch (err) {
     res.status(500).json({ error: 'Failed to load profile' });
+  }
+});
+
+// Parent: update a specific child profile
+app.put('/api/children/:id', auth, async (req, res) => {
+  try {
+    const registrationId = Number(req.params.id);
+    if (Number.isNaN(registrationId)) return res.status(400).json({ error: 'Invalid child id' });
+
+    const registration = await Registration.findOne({
+      where: {
+        id: registrationId,
+        userId: req.user.id,
+      },
+    });
+
+    if (!registration) return res.status(404).json({ error: 'Child registration not found' });
+
+    const {
+      playerName,
+      age,
+      gender,
+      program,
+      medical,
+    } = req.body;
+
+    if (!playerName || age === undefined || !gender || !program) {
+      return res.status(400).json({ error: 'playerName, age, gender, and program are required' });
+    }
+
+    const numericAge = Number(age);
+    if (Number.isNaN(numericAge) || numericAge < 4 || numericAge > 15) {
+      return res.status(400).json({ error: 'Age must be between 4 and 15' });
+    }
+
+    await registration.update({
+      playerName,
+      age: numericAge,
+      gender,
+      program,
+      medical: medical || '',
+    });
+
+    res.json({ message: 'Child profile updated successfully', data: registration });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Parent: remove a child profile and its billing record
+app.delete('/api/children/:id', auth, async (req, res) => {
+  try {
+    const registrationId = Number(req.params.id);
+    if (Number.isNaN(registrationId)) return res.status(400).json({ error: 'Invalid child id' });
+
+    const registrations = await Registration.findAll({ where: { userId: req.user.id } });
+    if (registrations.length <= 1) {
+      return res.status(400).json({ error: 'At least one child profile must remain on this account' });
+    }
+
+    const registration = registrations.find((item) => item.id === registrationId);
+    if (!registration) return res.status(404).json({ error: 'Child registration not found' });
+
+    const billing = await BillingInfo.findOne({ where: { registrationId: registration.id } });
+
+    if (billing?.receiptUrl) {
+      const receiptPath = path.join(__dirname, billing.receiptUrl.replace('/uploads/', 'uploads/'));
+      if (fs.existsSync(receiptPath)) fs.unlinkSync(receiptPath);
+    }
+
+    if (billing) {
+      await billing.destroy();
+    }
+
+    await registration.destroy();
+
+    res.json({ message: 'Child profile deleted successfully' });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
   }
 });
 
@@ -310,7 +578,7 @@ app.get('/api/admin/registrations', auth, async (req, res) => {
     const registrations = await Registration.findAll({
       include: [
         { model: User, attributes: ['parentName', 'email', 'phone'] },
-        { model: BillingInfo, attributes: ['id', 'amountDue', 'registrationFee', 'trainingSessionFee', 'bundleFee', 'dueDate', 'paid', 'receiptUrl', 'receiptMimeType', 'receiptUploadedAt', 'paymentConfirmedAt'] },
+        { model: BillingInfo, attributes: ['id', 'amountDue', 'registrationFee', 'registrationFeeSettled', 'trainingSessionFee', 'bundleMonths', 'bundleFee', 'paymentMode', 'selectedAmount', 'dueDate', 'paid', 'receiptUrl', 'receiptMimeType', 'receiptUploadedAt', 'paymentConfirmedAt'] },
       ],
     });
     res.json({ data: registrations });
@@ -324,7 +592,7 @@ app.put('/api/admin/payment-config', auth, async (req, res) => {
   if (!req.user.isAdmin) return res.status(403).json({ error: 'Forbidden' });
 
   try {
-    const { oneTimeRegistrationFee, trainingSessionFee, monthlyBundleFee, dueDate } = req.body;
+    const { oneTimeRegistrationFee, trainingSessionFee, bundleMonths, monthlyBundleFee, dueDate } = req.body;
 
     if (oneTimeRegistrationFee === undefined || trainingSessionFee === undefined || dueDate === undefined) {
       return res.status(400).json({ error: 'oneTimeRegistrationFee, trainingSessionFee, and dueDate are required' });
@@ -332,11 +600,18 @@ app.put('/api/admin/payment-config', auth, async (req, res) => {
 
     const registrationFee = Number(oneTimeRegistrationFee);
     const sessionFee = Number(trainingSessionFee);
+    const months = bundleMonths === undefined || bundleMonths === null || bundleMonths === ''
+      ? 0
+      : Number(bundleMonths);
     const bundleFee = monthlyBundleFee === undefined || monthlyBundleFee === null || monthlyBundleFee === ''
       ? 0
       : Number(monthlyBundleFee);
-    if (Number.isNaN(registrationFee) || registrationFee < 0 || Number.isNaN(sessionFee) || sessionFee < 0 || Number.isNaN(bundleFee) || bundleFee < 0) {
-      return res.status(400).json({ error: 'All fee values must be non-negative numbers' });
+    if (Number.isNaN(registrationFee) || registrationFee < 0 || Number.isNaN(sessionFee) || sessionFee < 0 || Number.isNaN(months) || months < 0 || !Number.isInteger(months) || Number.isNaN(bundleFee) || bundleFee < 0) {
+      return res.status(400).json({ error: 'All fee values must be valid non-negative numbers, and bundleMonths must be an integer' });
+    }
+
+    if ((months > 0 && bundleFee <= 0) || (months === 0 && bundleFee > 0)) {
+      return res.status(400).json({ error: 'Bundle months and bundle amount must be set together' });
     }
 
     const parsedDueDate = new Date(dueDate);
@@ -344,32 +619,48 @@ app.put('/api/admin/payment-config', auth, async (req, res) => {
       return res.status(400).json({ error: 'dueDate must be a valid date' });
     }
 
-    const totalAmountDue = registrationFee + sessionFee + bundleFee;
+    const oneTimeTotal = computeAmountByMode(registrationFee, sessionFee, bundleFee, 'one_time', true);
+    const bundleTotal = computeAmountByMode(registrationFee, sessionFee, bundleFee, 'bundle', true);
+    const recurringOneTimeTotal = computeAmountByMode(registrationFee, sessionFee, bundleFee, 'one_time', false);
+    const recurringBundleTotal = computeAmountByMode(registrationFee, sessionFee, bundleFee, 'bundle', false);
 
     const config = await getOrCreatePaymentConfig();
     await config.update({
       oneTimeRegistrationFee: registrationFee,
       trainingSessionFee: sessionFee,
+      bundleMonths: months,
       monthlyBundleFee: bundleFee,
       dueDate: parsedDueDate,
     });
 
-    await BillingInfo.update(
-      {
-        amountDue: totalAmountDue,
+    const unpaidBillings = await BillingInfo.findAll({ where: { paid: false } });
+    for (const billing of unpaidBillings) {
+      const updatedAmount = computeAmountByMode(
+        registrationFee,
+        sessionFee,
+        bundleFee,
+        billing.paymentMode || 'one_time',
+        !billing.registrationFeeSettled,
+      );
+      await billing.update({
+        amountDue: updatedAmount,
+        selectedAmount: updatedAmount,
         registrationFee,
         trainingSessionFee: sessionFee,
+        bundleMonths: months,
         bundleFee,
         dueDate: parsedDueDate,
-      },
-      { where: { paid: false } },
-    );
+      });
+    }
 
     res.json({
       message: 'Global payment configuration updated successfully',
       data: {
         ...config.toJSON(),
-        totalAmountDue,
+        oneTimeTotal,
+        bundleTotal,
+        recurringOneTimeTotal,
+        recurringBundleTotal,
       },
     });
   } catch (err) {
@@ -391,6 +682,7 @@ app.post('/api/admin/registrations/:id/confirm-payment', auth, async (req, res) 
 
     await billing.update({
       paid: true,
+      registrationFeeSettled: true,
       paymentConfirmedAt: new Date(),
     });
 
@@ -545,7 +837,7 @@ app.post('/api/forgot-password', async (req, res) => {
 
     // TODO: Send email with reset link (use SendGrid or similar)
     // For now, just log it
-    const resetUrl = `http://localhost:3000?page=ResetPassword&token=${resetToken}`;
+    const resetUrl = `http://localhost:3000/reset-password?token=${resetToken}`;
     console.log(`Password reset link: ${resetUrl}`);
     
     res.json({ message: 'Password reset link sent (check console in dev mode)' });

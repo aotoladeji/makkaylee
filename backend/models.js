@@ -7,6 +7,7 @@ const User = sequelize.define('User', {
   password: { type: DataTypes.STRING, allowNull: false },
   email: { type: DataTypes.STRING, unique: true, allowNull: false },
   isAdmin: { type: DataTypes.BOOLEAN, defaultValue: false },
+  isStaff: { type: DataTypes.BOOLEAN, defaultValue: false },
   parentName: { type: DataTypes.STRING },
   phone: { type: DataTypes.STRING },
   address: { type: DataTypes.STRING },
@@ -23,6 +24,7 @@ const Registration = sequelize.define('Registration', {
   medical: { type: DataTypes.STRING },
   consent: { type: DataTypes.BOOLEAN, defaultValue: false },
   status: { type: DataTypes.STRING, defaultValue: 'Pending Payment' },
+  badges: { type: DataTypes.JSON, defaultValue: [] },
 });
 
 // BillingInfo model
@@ -62,6 +64,16 @@ const GalleryMedia = sequelize.define('GalleryMedia', {
   isPublished: { type: DataTypes.BOOLEAN, defaultValue: true },
 });
 
+// Sponsor / Partner entries
+const Sponsor = sequelize.define('Sponsor', {
+  name: { type: DataTypes.STRING, allowNull: false },
+  type: { type: DataTypes.ENUM('sponsor', 'partner'), allowNull: false },
+  description: { type: DataTypes.TEXT, defaultValue: '' },
+  websiteUrl: { type: DataTypes.STRING, defaultValue: '' },
+  logoUrl: { type: DataTypes.STRING, allowNull: false },
+  isPublished: { type: DataTypes.BOOLEAN, defaultValue: true },
+});
+
 // Global payment configuration (applies to all unpaid records)
 const PaymentConfig = sequelize.define('PaymentConfig', {
   oneTimeRegistrationFee: { type: DataTypes.FLOAT, allowNull: false, defaultValue: 40000 },
@@ -78,4 +90,4 @@ Registration.belongsTo(User, { foreignKey: 'userId' });
 Registration.hasOne(BillingInfo, { foreignKey: 'registrationId' });
 BillingInfo.belongsTo(Registration, { foreignKey: 'registrationId' });
 
-module.exports = { User, Registration, BillingInfo, TrainingEvent, GalleryMedia, PaymentConfig };
+module.exports = { User, Registration, BillingInfo, TrainingEvent, GalleryMedia, PaymentConfig, Sponsor };

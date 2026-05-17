@@ -15,12 +15,24 @@ import PaymentPage from "./pages/PaymentPage";
 import ProgramsPage from "./pages/ProgramsPage";
 import RegisterPage from "./pages/RegisterPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
+import StaffLoginPage from "./pages/StaffLoginPage";
+import StaffProfilePage from "./pages/StaffProfilePage";
+import SponsorsPage from "./pages/SponsorsPage";
+import PartnersPage from "./pages/PartnersPage";
 
-function RequireAuth({ user, children }) {
+function RequireParent({ user, children }) {
   const location = useLocation();
 
   if (!user) {
     return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+  }
+
+  if (user.isAdmin) {
+    return <Navigate to="/admin" replace />;
+  }
+
+  if (user.isStaff) {
+    return <Navigate to="/staff-profile" replace />;
   }
 
   return children;
@@ -34,7 +46,21 @@ function RequireAdmin({ user, children }) {
   }
 
   if (!user.isAdmin) {
-    return <Navigate to="/dashboard" replace />;
+    return <Navigate to={user.isStaff ? "/staff-profile" : "/dashboard"} replace />;
+  }
+
+  return children;
+}
+
+function RequireStaff({ user, children }) {
+  const location = useLocation();
+
+  if (!user) {
+    return <Navigate to="/staff-login" replace state={{ from: location.pathname }} />;
+  }
+
+  if (!user.isStaff) {
+    return <Navigate to={user.isAdmin ? "/admin" : "/dashboard"} replace />;
   }
 
   return children;
@@ -46,12 +72,16 @@ const PAGE_TO_PATH = {
   Gallery: "/gallery",
   Register: "/register",
   Login: "/login",
+  StaffLogin: "/staff-login",
   ForgotPassword: "/forgot-password",
   ResetPassword: "/reset-password",
   Dashboard: "/dashboard",
   EditProfile: "/edit-profile",
   Payment: "/payment",
   Admin: "/admin",
+  StaffProfile: "/staff-profile",
+  Sponsors: "/sponsors",
+  Partners: "/partners",
 };
 
 const PATH_TO_PAGE = {
@@ -60,12 +90,16 @@ const PATH_TO_PAGE = {
   "/gallery": "Gallery",
   "/register": "Register",
   "/login": "Login",
+  "/staff-login": "StaffLogin",
   "/forgot-password": "ForgotPassword",
   "/reset-password": "ResetPassword",
   "/dashboard": "Dashboard",
   "/edit-profile": "EditProfile",
   "/payment": "Payment",
   "/admin": "Admin",
+  "/staff-profile": "StaffProfile",
+  "/sponsors": "Sponsors",
+  "/partners": "Partners",
 };
 
 export default function App() {
@@ -90,13 +124,15 @@ export default function App() {
     const token = localStorage.getItem("token");
     const username = localStorage.getItem("username");
     const isAdmin = localStorage.getItem("isAdmin") === "1";
-    if (token && username) setUser({ username, token, isAdmin });
+    const isStaff = localStorage.getItem("isStaff") === "1";
+    if (token && username) setUser({ username, token, isAdmin, isStaff });
   }, []);
 
   const handleLogout = () => {
     localStorage.removeItem("token");
     localStorage.removeItem("username");
     localStorage.removeItem("isAdmin");
+    localStorage.removeItem("isStaff");
     setUser(null);
     navigate("/");
   };
@@ -111,32 +147,43 @@ export default function App() {
           <Route path="/" element={<HomePage setPage={setPage} />} />
           <Route path="/programs" element={<ProgramsPage setPage={setPage} />} />
           <Route path="/gallery" element={<GalleryPage setPage={setPage} />} />
+          <Route path="/sponsors" element={<SponsorsPage setPage={setPage} />} />
+          <Route path="/partners" element={<PartnersPage setPage={setPage} />} />
           <Route path="/register" element={<RegisterPage user={user} setPage={setPage} />} />
           <Route path="/login" element={<LoginPage setUser={setUser} setPage={setPage} />} />
+          <Route path="/staff-login" element={<StaffLoginPage setUser={setUser} setPage={setPage} />} />
           <Route path="/forgot-password" element={<ForgotPasswordPage setPage={setPage} />} />
           <Route path="/reset-password" element={<ResetPasswordPage setPage={setPage} />} />
           <Route
             path="/dashboard"
             element={(
-              <RequireAuth user={user}>
+              <RequireParent user={user}>
                 <DashboardPage user={user} setPage={setPage} />
-              </RequireAuth>
+              </RequireParent>
             )}
           />
           <Route
             path="/edit-profile"
             element={(
-              <RequireAuth user={user}>
+              <RequireParent user={user}>
                 <EditProfilePage user={user} setPage={setPage} />
-              </RequireAuth>
+              </RequireParent>
             )}
           />
           <Route
             path="/payment"
             element={(
-              <RequireAuth user={user}>
+              <RequireParent user={user}>
                 <PaymentPage user={user} setPage={setPage} />
-              </RequireAuth>
+              </RequireParent>
+            )}
+          />
+          <Route
+            path="/staff-profile"
+            element={(
+              <RequireStaff user={user}>
+                <StaffProfilePage user={user} setPage={setPage} />
+              </RequireStaff>
             )}
           />
           <Route

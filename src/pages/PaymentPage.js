@@ -28,6 +28,11 @@ export default function PaymentPage({ user, setPage }) {
         if (!data?.error) {
           setBilling(data);
           setChildren(data.children || []);
+          // Sync the payment mode radio to this child's saved mode
+          setPaymentMode(data.paymentMode || "one_time");
+          setMessage("");
+          setError("");
+          setReceiptFile(null);
           if (data.registrationId) {
             const registrationIdValue = String(data.registrationId);
             setSelectedRegistrationId(registrationIdValue);
@@ -100,6 +105,11 @@ export default function PaymentPage({ user, setPage }) {
     <div style={{ paddingTop: 70, background: ASH, minHeight: "100vh" }}>
       <div style={{ background: `linear-gradient(135deg, ${NAVY}, #1a3168)`, padding: "60px 24px", textAlign: "center" }}>
         <h1 style={{ color: "white", fontFamily: "'Playfair Display', Georgia, serif", fontSize: "clamp(28px, 4vw, 48px)", fontWeight: 900, margin: 0 }}>Payment Information</h1>
+        {billing?.playerName && (
+          <p style={{ color: "rgba(255,255,255,0.85)", fontSize: 16, marginTop: 10, fontWeight: 700 }}>
+            Child: {billing.playerName}
+          </p>
+        )}
       </div>
 
       <div style={{ maxWidth: 760, margin: "0 auto", padding: "60px 24px" }}>
@@ -113,6 +123,7 @@ export default function PaymentPage({ user, setPage }) {
                 onChange={(event) => {
                   setSelectedRegistrationId(event.target.value);
                   localStorage.setItem("activeRegistrationId", event.target.value);
+                  setBilling(null);
                 }}
                 style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: "1px solid #ddd" }}
               >

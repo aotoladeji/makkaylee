@@ -75,7 +75,23 @@ export default function RegisterPage({ user, setPage }) {
         },
         body: JSON.stringify(payload),
       });
-      const data = await response.json();
+      const contentType = response.headers.get("content-type") || "";
+      const rawBody = await response.text();
+      let data = {};
+
+      if (rawBody && contentType.includes("application/json")) {
+        try {
+          data = JSON.parse(rawBody);
+        } catch {
+          data = {};
+        }
+      }
+
+      if (!contentType.includes("application/json")) {
+        setError("Unexpected server response. Please ensure the backend API is running and try again.");
+        return;
+      }
+
       if (!response.ok) {
         setError(data.error || "Registration failed");
         return;

@@ -21,7 +21,7 @@ export default function Footer({ setPage }) {
         </div>
 
         {[
-          { title: "Quick Links", links: [["Home", "Home"], ["Programs", "Programs"], ["Register", "Register"], ["Payment", "Payment"]] },
+          { title: "Quick Links", links: [["Home", "Home"], ["Programs", "Programs"], ["Sponsors", "Sponsors"], ["Partners", "Partners"], ["Register", "Register"], ["Payment", "Payment"]] },
           { title: "Programmes", links: [["Junior Stars (4-8)", "Programs"], ["Intermediate (9-12)", "Programs"], ["Elite (13-15)", "Programs"]] },
         ].map((column) => (
           <div key={column.title}>

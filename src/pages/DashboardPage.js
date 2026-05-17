@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import Badge from "../components/common/Badge";
 import { API } from "../constants/api";
 import { BRAND } from "../constants/brand";
+import { BADGES } from "../constants/badges";
 import { ASH, NAVY } from "../constants/theme";
 
 export default function DashboardPage({ user, setPage }) {
@@ -20,6 +21,14 @@ export default function DashboardPage({ user, setPage }) {
   });
   const [busyChildId, setBusyChildId] = useState(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const [passwordForm, setPasswordForm] = useState({
+    currentPassword: "",
+    newPassword: "",
+    confirmPassword: "",
+  });
+  const [passwordMessage, setPasswordMessage] = useState("");
+  const [passwordError, setPasswordError] = useState("");
+  const [passwordSaving, setPasswordSaving] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -120,6 +129,53 @@ export default function DashboardPage({ user, setPage }) {
     }
   };
 
+  const handleChangePassword = async (event) => {
+    event.preventDefault();
+    setPasswordError("");
+    setPasswordMessage("");
+
+    if (!passwordForm.currentPassword || !passwordForm.newPassword || !passwordForm.confirmPassword) {
+      setPasswordError("All password fields are required.");
+      return;
+    }
+
+    if (passwordForm.newPassword.length < 6) {
+      setPasswordError("New password must be at least 6 characters.");
+      return;
+    }
+
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      setPasswordError("New password and confirm password do not match.");
+      return;
+    }
+
+    setPasswordSaving(true);
+
+    try {
+      const response = await fetch(`${API}/change-password`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${user.token}`,
+        },
+        body: JSON.stringify({
+          currentPassword: passwordForm.currentPassword,
+          newPassword: passwordForm.newPassword,
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Failed to change password");
+
+      setPasswordForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
+      setPasswordMessage("Password changed successfully.");
+    } catch (submitError) {
+      setPasswordError(submitError.message);
+    } finally {
+      setPasswordSaving(false);
+    }
+  };
+
   if (!user) return <div style={{ padding: 40 }}>Please log in.</div>;
   if (error) return <div style={{ color: "red", padding: 40 }}>{error}</div>;
   if (!profile) return <div style={{ padding: 40 }}>Loading profile...</div>;
@@ -164,6 +220,7 @@ export default function DashboardPage({ user, setPage }) {
                   onChange={(event) => {
                     setSelectedRegistrationId(event.target.value);
                     localStorage.setItem("activeRegistrationId", event.target.value);
+                    setProfile(null);
                   }}
                   style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid rgba(255,255,255,0.5)", background: "rgba(255,255,255,0.15)", color: "white", fontWeight: 700 }}
                 >
@@ -247,7 +304,80 @@ export default function DashboardPage({ user, setPage }) {
               </button>
             )}
           </div>
+
+          <div style={{ background: "white", borderRadius: 16, padding: 32, boxShadow: "0 4px 24px rgba(0,0,0,0.06)" }}>
+            <h3 style={{ color: NAVY, fontFamily: "'Playfair Display', Georgia, serif", fontSize: 20, marginBottom: 20 }}>Security</h3>
+            <form onSubmit={handleChangePassword}>
+              <label style={{ display: "block", marginBottom: 6, color: "#666", fontSize: 13 }}>Current Password</label>
+              <input
+                type="password"
+                value={passwordForm.currentPassword}
+                onChange={(event) => setPasswordForm((current) => ({ ...current, currentPassword: event.target.value }))}
+                style={{ width: "100%", marginBottom: 12, padding: "10px 12px", border: "1px solid #ccc", borderRadius: 8 }}
+              />
+              <label style={{ display: "block", marginBottom: 6, color: "#666", fontSize: 13 }}>New Password</label>
+              <input
+                type="password"
+                value={passwordForm.newPassword}
+                onChange={(event) => setPasswordForm((current) => ({ ...current, newPassword: event.target.value }))}
+                style={{ width: "100%", marginBottom: 12, padding: "10px 12px", border: "1px solid #ccc", borderRadius: 8 }}
+              />
+              <label style={{ display: "block", marginBottom: 6, color: "#666", fontSize: 13 }}>Confirm New Password</label>
+              <input
+                type="password"
+                value={passwordForm.confirmPassword}
+                onChange={(event) => setPasswordForm((current) => ({ ...current, confirmPassword: event.target.value }))}
+                style={{ width: "100%", marginBottom: 12, padding: "10px 12px", border: "1px solid #ccc", borderRadius: 8 }}
+              />
+              <button type="submit" disabled={passwordSaving} style={{ background: NAVY, color: "white", border: "none", padding: "10px 14px", borderRadius: 8, fontWeight: 700, cursor: "pointer" }}>
+                {passwordSaving ? "Saving..." : "Change Password"}
+              </button>
+              {passwordError && <div style={{ color: "red", marginTop: 10, fontSize: 13 }}>{passwordError}</div>}
+              {passwordMessage && <div style={{ color: "green", marginTop: 10, fontSize: 13 }}>{passwordMessage}</div>}
+            </form>
+          </div>
         </div>
+
+        {(() => {
+          const awardedBadges = (registration?.badges || []).map((key) => BADGES[key]).filter(Boolean);
+          return (
+            <div style={{ marginTop: 24, background: "white", borderRadius: 16, padding: 32, boxShadow: "0 4px 24px rgba(0,0,0,0.06)" }}>
+              <h3 style={{ color: NAVY, fontFamily: "'Playfair Display', Georgia, serif", fontSize: 20, marginTop: 0, marginBottom: 20 }}>Performance Badges</h3>
+              {awardedBadges.length === 0 ? (
+                <div style={{ textAlign: "center", padding: "32px 0", color: "#aaa" }}>
+                  <div style={{ fontSize: 40, marginBottom: 8 }}>🏅</div>
+                  <div style={{ fontWeight: 700, fontSize: 15 }}>No badges awarded yet</div>
+                  <div style={{ fontSize: 13, marginTop: 4 }}>Keep training hard — your coach will award badges as you grow!</div>
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+                  {awardedBadges.map((badge) => (
+                    <div
+                      key={badge.key}
+                      title={badge.description}
+                      style={{
+                        background: badge.bg,
+                        border: `2px solid ${badge.border}`,
+                        borderRadius: 12,
+                        padding: "12px 18px",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 10,
+                        minWidth: 160,
+                      }}
+                    >
+                      <span style={{ fontSize: 28 }}>{badge.emoji}</span>
+                      <div>
+                        <div style={{ fontWeight: 800, color: badge.color, fontSize: 14 }}>{badge.label}</div>
+                        <div style={{ fontSize: 11, color: "#888", marginTop: 2 }}>{badge.description}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         <div style={{ marginTop: 24, background: "white", borderRadius: 16, padding: 24, boxShadow: "0 4px 24px rgba(0,0,0,0.06)" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>

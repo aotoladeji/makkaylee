@@ -9,7 +9,7 @@ const multer = require('multer');
 const rateLimit = require('express-rate-limit');
 const sequelize = require('./db');
 const { Op } = require('sequelize');
-const { User, Registration, BillingInfo, TrainingEvent, GalleryMedia, PaymentConfig } = require('./models');
+const { User, Registration, BillingInfo, TrainingEvent, GalleryMedia, PaymentConfig, Sponsor } = require('./models');
 
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '.env') });
@@ -196,7 +196,24 @@ app.post('/api/login', async (req, res) => {
     if (!user) return res.status(401).json({ error: 'Invalid credentials' });
     const match = await bcrypt.compare(password, user.password);
     if (!match) return res.status(401).json({ error: 'Invalid credentials' });
-    const token = jwt.sign({ id: user.id, isAdmin: user.isAdmin }, SECRET, { expiresIn: JWT_EXPIRE });
+    const token = jwt.sign({ id: user.id, isAdmin: user.isAdmin, isStaff: user.isStaff }, SECRET, { expiresIn: JWT_EXPIRE });
+    res.json({ token });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Staff login (staff-only)
+app.post('/api/staff/login', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    const user = await User.findOne({ where: { username } });
+    if (!user || !user.isStaff) return res.status(401).json({ error: 'Invalid staff credentials' });
+
+    const match = await bcrypt.compare(password, user.password);
+    if (!match) return res.status(401).json({ error: 'Invalid staff credentials' });
+
+    const token = jwt.sign({ id: user.id, isAdmin: user.isAdmin, isStaff: user.isStaff }, SECRET, { expiresIn: JWT_EXPIRE });
     res.json({ token });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -449,6 +466,7 @@ app.get('/api/profile', auth, async (req, res) => {
         program: registrationItem.program,
         medical: registrationItem.medical,
         status: registrationItem.status,
+        badges: registrationItem.badges || [],
         createdAt: registrationItem.createdAt,
         billing: childBilling
           ? {
@@ -472,6 +490,7 @@ app.get('/api/profile', auth, async (req, res) => {
       program: registrationItem.program,
       medical: registrationItem.medical,
       status: registrationItem.status,
+      badges: registrationItem.badges || [],
       createdAt: registrationItem.createdAt,
       billing: registrationItem.billing,
     }));
@@ -694,6 +713,31 @@ app.post('/api/admin/registrations/:id/confirm-payment', auth, async (req, res) 
   }
 });
 
+// Admin: assign performance badges to a registration
+const VALID_BADGE_KEYS = [
+  'rising_star', 'top_scorer', 'most_improved', 'team_player',
+  'captain', 'speed_demon', 'iron_wall', 'discipline', 'match_ready', 'golden_boot',
+];
+
+app.put('/api/admin/registrations/:id/badges', auth, async (req, res) => {
+  if (!req.user.isAdmin) return res.status(403).json({ error: 'Forbidden' });
+
+  try {
+    const registration = await Registration.findByPk(req.params.id);
+    if (!registration) return res.status(404).json({ error: 'Registration not found' });
+
+    const { badges } = req.body;
+    if (!Array.isArray(badges)) return res.status(400).json({ error: 'badges must be an array' });
+
+    const sanitized = badges.filter((k) => VALID_BADGE_KEYS.includes(k));
+    await registration.update({ badges: sanitized });
+
+    res.json({ message: 'Badges updated', data: { id: registration.id, badges: sanitized } });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 // Admin: get all users
 app.get('/api/admin/users', auth, async (req, res) => {
   if (!req.user.isAdmin) return res.status(403).json({ error: 'Forbidden' });
@@ -702,6 +746,57 @@ app.get('/api/admin/users', auth, async (req, res) => {
       attributes: { exclude: ['password', 'resetToken', 'resetTokenExpiry'] }
     });
     res.json({ data: users });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Admin: create a staff account
+app.post('/api/admin/staff', auth, async (req, res) => {
+  if (!req.user.isAdmin) return res.status(403).json({ error: 'Forbidden' });
+
+  try {
+    const { username, password, email, parentName, phone } = req.body;
+
+    if (!username || !password || !email || !parentName) {
+      return res.status(400).json({ error: 'username, password, email, and name are required' });
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    }
+
+    const existing = await User.findOne({
+      where: {
+        [Op.or]: [{ username }, { email }],
+      },
+    });
+    if (existing) {
+      return res.status(400).json({ error: 'Username or email already exists' });
+    }
+
+    const hash = await bcrypt.hash(password, 10);
+    const user = await User.create({
+      username,
+      password: hash,
+      email,
+      parentName,
+      phone: phone || null,
+      isStaff: true,
+      isAdmin: false,
+    });
+
+    res.json({
+      message: 'Staff account created successfully',
+      data: {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        parentName: user.parentName,
+        phone: user.phone,
+        isStaff: user.isStaff,
+      },
+    });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -747,20 +842,32 @@ app.post('/api/admin/gallery/upload', auth, upload.single('media'), async (req, 
   if (!req.user.isAdmin) return res.status(403).json({ error: 'Forbidden' });
 
   try {
-    const { title, caption } = req.body;
+    const { title, caption, youtubeUrl } = req.body;
 
-    if (!req.file) return res.status(400).json({ error: 'Media file is required' });
     if (!title) return res.status(400).json({ error: 'Media title is required' });
+    if (!req.file && !youtubeUrl) return res.status(400).json({ error: 'Media file or YouTube URL is required' });
 
-    const mediaType = req.file.mimetype.startsWith('video/') ? 'video' : 'image';
-    const mediaUrl = `/uploads/${req.file.filename}`;
+    let mediaType, mediaUrl, mimeType;
+
+    if (youtubeUrl) {
+      if (!/youtube\.com\/watch|youtu\.be\//.test(youtubeUrl)) {
+        return res.status(400).json({ error: 'Invalid YouTube URL' });
+      }
+      mediaType = 'video';
+      mediaUrl = youtubeUrl;
+      mimeType = 'youtube';
+    } else {
+      mediaType = req.file.mimetype.startsWith('video/') ? 'video' : 'image';
+      mediaUrl = `/uploads/${req.file.filename}`;
+      mimeType = req.file.mimetype;
+    }
 
     const created = await GalleryMedia.create({
       title,
       caption: caption || '',
       mediaType,
       mediaUrl,
-      mimeType: req.file.mimetype,
+      mimeType,
       isPublished: true,
     });
 
@@ -778,9 +885,11 @@ app.delete('/api/admin/gallery/:id', auth, async (req, res) => {
     const item = await GalleryMedia.findByPk(req.params.id);
     if (!item) return res.status(404).json({ error: 'Media item not found' });
 
-    const absolutePath = path.join(__dirname, item.mediaUrl.replace('/uploads/', 'uploads/'));
-    if (fs.existsSync(absolutePath)) {
-      fs.unlinkSync(absolutePath);
+    if (item.mimeType !== 'youtube') {
+      const absolutePath = path.join(__dirname, item.mediaUrl.replace('/uploads/', 'uploads/'));
+      if (fs.existsSync(absolutePath)) {
+        fs.unlinkSync(absolutePath);
+      }
     }
 
     await item.destroy();
@@ -790,7 +899,37 @@ app.delete('/api/admin/gallery/:id', auth, async (req, res) => {
   }
 });
 
-// Admin: change own password
+// Change own password (all authenticated users)
+app.post('/api/change-password', auth, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: 'Current password and new password are required' });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: 'New password must be at least 6 characters' });
+    }
+
+    const user = await User.findByPk(req.user.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const isMatch = await bcrypt.compare(currentPassword, user.password);
+    if (!isMatch) {
+      return res.status(401).json({ error: 'Current password is incorrect' });
+    }
+
+    const hash = await bcrypt.hash(newPassword, 10);
+    await user.update({ password: hash, resetToken: null, resetTokenExpiry: null });
+
+    res.json({ message: 'Password changed successfully' });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Admin-compatible alias for change-password
 app.post('/api/admin/change-password', auth, async (req, res) => {
   if (!req.user.isAdmin) return res.status(403).json({ error: 'Forbidden' });
 
@@ -869,6 +1008,48 @@ app.post('/api/reset-password', async (req, res) => {
   }
 });
 
+// Staff profile
+app.get('/api/staff/profile', auth, async (req, res) => {
+  if (!req.user.isStaff) return res.status(403).json({ error: 'Forbidden' });
+
+  try {
+    const user = await User.findByPk(req.user.id, {
+      attributes: ['id', 'username', 'email', 'parentName', 'phone', 'address', 'isStaff', 'createdAt'],
+    });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    res.json({ data: user });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.put('/api/staff/profile', auth, async (req, res) => {
+  if (!req.user.isStaff) return res.status(403).json({ error: 'Forbidden' });
+
+  try {
+    const { parentName, phone, address } = req.body;
+    const user = await User.findByPk(req.user.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    await user.update({ parentName, phone, address });
+    res.json({
+      message: 'Staff profile updated',
+      data: {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        parentName: user.parentName,
+        phone: user.phone,
+        address: user.address,
+        isStaff: user.isStaff,
+      },
+    });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 // Update profile
 app.put('/api/profile', auth, async (req, res) => {
   try {
@@ -888,7 +1069,76 @@ app.get('/api/hello', (req, res) => {
   res.json({ message: 'Hello from the backend!' });
 });
 
-// Global error handler
+// ─── Sponsors / Partners ────────────────────────────────────────────────────
+
+const logoUpload = multer({
+  storage: uploadStorage,
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) return cb(null, true);
+    cb(new Error('Only image files are allowed for logos'));
+  },
+});
+
+// Public: list published sponsors or partners
+app.get('/api/sponsors', async (req, res) => {
+  try {
+    const { type } = req.query; // 'sponsor' | 'partner' | undefined (all)
+    const where = { isPublished: true };
+    if (type === 'sponsor' || type === 'partner') where.type = type;
+    const items = await Sponsor.findAll({ where, order: [['createdAt', 'DESC']] });
+    res.json(items);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Admin: add sponsor / partner (with logo upload)
+app.post('/api/admin/sponsors', auth, logoUpload.single('logo'), async (req, res) => {
+  if (!req.user.isAdmin) return res.status(403).json({ error: 'Forbidden' });
+  try {
+    const { name, type, description, websiteUrl } = req.body;
+    if (!name) return res.status(400).json({ error: 'Name is required' });
+    if (type !== 'sponsor' && type !== 'partner') return res.status(400).json({ error: 'Type must be sponsor or partner' });
+    if (!req.file) return res.status(400).json({ error: 'Logo image is required' });
+
+    const logoUrl = `/uploads/${req.file.filename}`;
+    const entry = await Sponsor.create({ name, type, description: description || '', websiteUrl: websiteUrl || '', logoUrl, isPublished: true });
+    res.json({ message: 'Entry created', data: entry });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Admin: list all sponsors / partners (including unpublished)
+app.get('/api/admin/sponsors', auth, async (req, res) => {
+  if (!req.user.isAdmin) return res.status(403).json({ error: 'Forbidden' });
+  try {
+    const items = await Sponsor.findAll({ order: [['createdAt', 'DESC']] });
+    res.json(items);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Admin: delete sponsor / partner
+app.delete('/api/admin/sponsors/:id', auth, async (req, res) => {
+  if (!req.user.isAdmin) return res.status(403).json({ error: 'Forbidden' });
+  try {
+    const item = await Sponsor.findByPk(req.params.id);
+    if (!item) return res.status(404).json({ error: 'Entry not found' });
+
+    const absPath = path.join(__dirname, item.logoUrl.replace('/uploads/', 'uploads/'));
+    if (fs.existsSync(absPath)) fs.unlinkSync(absPath);
+
+    await item.destroy();
+    res.json({ message: 'Deleted' });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// ─── Global error handler ────────────────────────────────────────────────────
 app.use((err, req, res, next) => {
   console.error(err.stack);
   res.status(500).json({ error: 'Internal server error' });

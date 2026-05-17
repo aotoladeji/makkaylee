@@ -119,8 +119,8 @@ function AboutSection() {
             {/* Feature grid */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 32 }}>
               {[
-                { icon: "🏆", t: "Championship Results", d: "Multiple regional titles" },
-                { icon: "👨‍🏫", t: "Expert Coaches", d: "UEFA & CAF certified" },
+                { icon: "🏆", t: "Championship Results", d: "Building a championship mentality" },
+                { icon: "👨‍🏫", t: "Expert Coaches", d: "Trained Professionals and Expert Coaching" },
                 { icon: "🏟️", t: "Premium Facilities", d: "Int'l School Ibadan" },
                 { icon: "🤝", t: "Community Focus", d: "Affordable & inclusive" },
               ].map(f => (

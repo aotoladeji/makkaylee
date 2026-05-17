@@ -15,13 +15,18 @@ export default function Nav({ page, setPage, menuOpen, setMenuOpen, user, onLogo
     { label: "Home", page: "Home" },
     { label: "Programs", page: "Programs" },
     { label: "Gallery", page: "Gallery" },
+    { label: "Sponsors", page: "Sponsors" },
+    { label: "Partners", page: "Partners" },
     ...(user
-      ? [
-          { label: "Profile", page: "Dashboard" },
-          { label: "Payment", page: "Payment" },
-          ...(user?.isAdmin ? [{ label: "Admin", page: "Admin" }] : []),
-        ]
-      : [{ label: "Login", page: "Login" }]),
+      ? user?.isAdmin
+        ? [{ label: "Admin", page: "Admin" }]
+        : user?.isStaff
+          ? [{ label: "Staff Profile", page: "StaffProfile" }]
+          : [
+              { label: "Profile", page: "Dashboard" },
+              { label: "Payment", page: "Payment" },
+            ]
+      : [{ label: "Login", page: "Login" }, { label: "Staff Sign In", page: "StaffLogin" }]),
   ];
 
   return (

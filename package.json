@@ -21,7 +21,7 @@
     "web-vitals": "^2.1.4"
   },
   "scripts": {
-    "start": "react-app-rewired start",
+    "start": "concurrently \"npm --prefix backend start\" \"react-app-rewired start\"",
     "build": "react-app-rewired build",
     "test": "react-app-rewired test",
     "eject": "react-scripts eject"
@@ -45,6 +45,7 @@
     ]
   },
   "devDependencies": {
+    "concurrently": "^9.0.1",
     "react-app-rewired": "^2.2.1"
   }
 }

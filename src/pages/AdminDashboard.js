@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { API } from "../constants/api";
 import { ASH, NAVY } from "../constants/theme";
+import { BADGE_LIST, BADGES } from "../constants/badges";
 import Input from "../components/common/Input";
 
 export default function AdminDashboard({ user, setPage }) {
@@ -31,7 +32,9 @@ export default function AdminDashboard({ user, setPage }) {
   const [uploadForm, setUploadForm] = useState({
     title: "",
     caption: "",
+    uploadType: "file",
     mediaFile: null,
+    youtubeUrl: "",
   });
   const [uploadMessage, setUploadMessage] = useState("");
   const [uploadError, setUploadError] = useState("");
@@ -48,6 +51,29 @@ export default function AdminDashboard({ user, setPage }) {
   const [paymentConfigError, setPaymentConfigError] = useState("");
   const [selectedFamilyKey, setSelectedFamilyKey] = useState("");
   const [selectedFamilyChildId, setSelectedFamilyChildId] = useState("");
+
+  const [badgeEditId, setBadgeEditId] = useState(null);
+  const [badgeSelections, setBadgeSelections] = useState([]);
+  const [badgeSaving, setBadgeSaving] = useState(false);
+  const [badgeMessage, setBadgeMessage] = useState("");
+  const [badgeToast, setBadgeToast] = useState("");
+
+  const [staffForm, setStaffForm] = useState({
+    username: "",
+    email: "",
+    parentName: "",
+    phone: "",
+    password: "",
+  });
+  const [staffMessage, setStaffMessage] = useState("");
+  const [staffError, setStaffError] = useState("");
+  const [staffSaving, setStaffSaving] = useState(false);
+
+  const [sponsorList, setSponsorList] = useState([]);
+  const [sponsorForm, setSponsorForm] = useState({ name: "", type: "sponsor", description: "", websiteUrl: "", logo: null });
+  const [sponsorMessage, setSponsorMessage] = useState("");
+  const [sponsorError, setSponsorError] = useState("");
+  const [sponsorSaving, setSponsorSaving] = useState(false);
 
   const apiBase = useMemo(() => API.replace(/\/api$/, ""), []);
   const familyGroups = useMemo(() => {
@@ -96,6 +122,20 @@ export default function AdminDashboard({ user, setPage }) {
     return selectedFamilyChild ? [selectedFamilyChild] : selectedFamily.children;
   }, [registrations, selectedFamily, selectedFamilyChildId, selectedFamilyChild]);
 
+  const staffUsers = useMemo(
+    () => users.filter((u) => !u.isAdmin && u.isStaff),
+    [users],
+  );
+
+  const paidRegistrations = useMemo(
+    () => registrations.filter((registration) => registration.BillingInfo?.paid),
+    [registrations],
+  );
+
+  const totalPaidAmount = useMemo(
+    () => paidRegistrations.reduce((sum, registration) => sum + Number(registration.BillingInfo?.selectedAmount ?? registration.BillingInfo?.amountDue ?? 0), 0),
+    [paidRegistrations],
+  );
   const toMediaUrl = (mediaUrl) => {
     if (!mediaUrl) return "";
     if (mediaUrl.startsWith("http://") || mediaUrl.startsWith("https://")) return mediaUrl;
@@ -163,6 +203,22 @@ export default function AdminDashboard({ user, setPage }) {
         setError("Failed to load admin data");
       } finally {
         setLoading(false);
+      }
+
+      // Load sponsors separately so a failure doesn't break the rest of the dashboard
+      try {
+        const sponsorsRes = await fetch(`${API}/admin/sponsors`, {
+          headers: { Authorization: `Bearer ${user.token}` },
+        });
+        if (sponsorsRes.ok) {
+          const ct = sponsorsRes.headers.get("content-type") || "";
+          if (ct.includes("application/json")) {
+            const sponsorsData = await sponsorsRes.json();
+            if (Array.isArray(sponsorsData)) setSponsorList(sponsorsData);
+          }
+        }
+      } catch (_) {
+        // sponsors endpoint not yet available — ignore, rest of data already loaded
       }
     };
 
@@ -280,6 +336,11 @@ export default function AdminDashboard({ user, setPage }) {
       return;
     }
 
+    if (name === "uploadType") {
+      setUploadForm((current) => ({ ...current, uploadType: value, mediaFile: null, youtubeUrl: "" }));
+      return;
+    }
+
     setUploadForm((current) => ({ ...current, [name]: value }));
   };
 
@@ -288,15 +349,30 @@ export default function AdminDashboard({ user, setPage }) {
     setUploadError("");
     setUploadMessage("");
 
-    if (!uploadForm.title || !uploadForm.mediaFile) {
-      setUploadError("Title and media file are required.");
+    if (!uploadForm.title) {
+      setUploadError("Title is required.");
+      return;
+    }
+
+    if (uploadForm.uploadType === "youtube") {
+      if (!uploadForm.youtubeUrl) { setUploadError("YouTube URL is required."); return; }
+      if (!/youtube\.com\/watch|youtu\.be\//.test(uploadForm.youtubeUrl)) {
+        setUploadError("Please enter a valid YouTube URL (e.g. https://www.youtube.com/watch?v=... or https://youtu.be/...).");
+        return;
+      }
+    } else if (!uploadForm.mediaFile) {
+      setUploadError("Media file is required.");
       return;
     }
 
     const body = new FormData();
     body.append("title", uploadForm.title);
     body.append("caption", uploadForm.caption);
-    body.append("media", uploadForm.mediaFile);
+    if (uploadForm.uploadType === "youtube") {
+      body.append("youtubeUrl", uploadForm.youtubeUrl);
+    } else {
+      body.append("media", uploadForm.mediaFile);
+    }
 
     try {
       const response = await fetch(`${API}/admin/gallery/upload`, {
@@ -312,7 +388,7 @@ export default function AdminDashboard({ user, setPage }) {
 
       setGalleryMedia((current) => [data.data, ...current]);
       setUploadMessage("Gallery media uploaded.");
-      setUploadForm({ title: "", caption: "", mediaFile: null });
+      setUploadForm({ title: "", caption: "", uploadType: "file", mediaFile: null, youtubeUrl: "" });
     } catch (submitError) {
       setUploadError(submitError.message);
     }
@@ -370,6 +446,79 @@ export default function AdminDashboard({ user, setPage }) {
       setRegistrationActionMessage("Payment confirmed successfully.");
     } catch (submitError) {
       setRegistrationActionError(submitError.message);
+    }
+  };
+
+  const handleAssignBadges = async () => {
+    if (!badgeEditId) {
+      setBadgeMessage("No player selected for badge assignment.");
+      return;
+    }
+
+    setBadgeSaving(true);
+    setBadgeMessage("");
+
+    try {
+      const response = await fetch(`${API}/admin/registrations/${badgeEditId}/badges`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${user.token}`,
+        },
+        body: JSON.stringify({ badges: badgeSelections }),
+      });
+
+      const responseType = response.headers.get("content-type") || "";
+      const isJson = responseType.includes("application/json");
+      const payload = isJson ? await response.json() : await response.text();
+
+      if (!response.ok) {
+        const serverMessage = isJson
+          ? (payload?.error || payload?.message)
+          : String(payload || "").slice(0, 180);
+        throw new Error(serverMessage || `Failed to update badges (${response.status})`);
+      }
+
+      if (!isJson) {
+        throw new Error("Badge update returned an unexpected response format from the server.");
+      }
+
+      const savedPlayerName = registrations.find((registration) => registration.id === badgeEditId)?.playerName || "player";
+
+      // Optimistic UI update first, then sync with backend state.
+      setRegistrations((current) =>
+        current.map((registration) =>
+          registration.id === badgeEditId
+            ? { ...registration, badges: badgeSelections }
+            : registration,
+        ),
+      );
+
+      try {
+        const refreshRes = await fetch(`${API}/admin/registrations`, {
+          headers: { Authorization: `Bearer ${user.token}` },
+        });
+
+        const refreshType = refreshRes.headers.get("content-type") || "";
+        if (refreshRes.ok && refreshType.includes("application/json")) {
+          const refreshData = await refreshRes.json();
+          setRegistrations(refreshData.data || []);
+        }
+      } catch (refreshError) {
+        // Keep optimistic state if refresh fails temporarily.
+      }
+
+      setBadgeMessage("Badges saved!");
+      setBadgeToast(`Badges saved for ${savedPlayerName}.`);
+      setTimeout(() => setBadgeToast(""), 3200);
+      setTimeout(() => {
+        setBadgeEditId(null);
+        setBadgeMessage("");
+      }, 1000);
+    } catch (badgeError) {
+      setBadgeMessage(badgeError.message);
+    } finally {
+      setBadgeSaving(false);
     }
   };
 
@@ -463,12 +612,117 @@ export default function AdminDashboard({ user, setPage }) {
     }
   };
 
+  const handleCreateStaff = async (event) => {
+    event.preventDefault();
+    setStaffError("");
+    setStaffMessage("");
+
+    if (!staffForm.username || !staffForm.email || !staffForm.parentName || !staffForm.password) {
+      setStaffError("Username, email, full name, and password are required.");
+      return;
+    }
+
+    if (staffForm.password.length < 6) {
+      setStaffError("Password must be at least 6 characters.");
+      return;
+    }
+
+    setStaffSaving(true);
+    try {
+      const response = await fetch(`${API}/admin/staff`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${user.token}`,
+        },
+        body: JSON.stringify(staffForm),
+      });
+
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Failed to create staff account");
+
+      const usersRes = await fetch(`${API}/admin/users`, {
+        headers: { Authorization: `Bearer ${user.token}` },
+      });
+      const usersData = await usersRes.json();
+      if (usersRes.ok) setUsers(usersData.data || []);
+
+      setStaffForm({ username: "", email: "", parentName: "", phone: "", password: "" });
+      setStaffMessage("Staff account created successfully.");
+    } catch (submitError) {
+      setStaffError(submitError.message);
+    } finally {
+      setStaffSaving(false);
+    }
+  };
+
+  const handleSponsorChange = (e) => {
+    const { name, value, files } = e.target;
+    if (name === "logo") {
+      setSponsorForm((prev) => ({ ...prev, logo: files[0] || null }));
+    } else {
+      setSponsorForm((prev) => ({ ...prev, [name]: value }));
+    }
+  };
+
+  const handleSponsorSubmit = async (e) => {
+    e.preventDefault();
+    setSponsorError("");
+    setSponsorMessage("");
+    if (!sponsorForm.name.trim()) { setSponsorError("Name is required."); return; }
+    if (!sponsorForm.logo) { setSponsorError("Logo image is required."); return; }
+    setSponsorSaving(true);
+    try {
+      const formData = new FormData();
+      formData.append("name", sponsorForm.name);
+      formData.append("type", sponsorForm.type);
+      formData.append("description", sponsorForm.description);
+      formData.append("websiteUrl", sponsorForm.websiteUrl);
+      formData.append("logo", sponsorForm.logo);
+      const res = await fetch(`${API}/admin/sponsors`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${user.token}` },
+        body: formData,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to add entry");
+      const listRes = await fetch(`${API}/admin/sponsors`, { headers: { Authorization: `Bearer ${user.token}` } });
+      const listData = await listRes.json();
+      if (listRes.ok && Array.isArray(listData)) setSponsorList(listData);
+      setSponsorForm({ name: "", type: "sponsor", description: "", websiteUrl: "", logo: null });
+      setSponsorMessage(`${sponsorForm.type === "sponsor" ? "Sponsor" : "Partner"} added successfully.`);
+    } catch (submitErr) {
+      setSponsorError(submitErr.message);
+    } finally {
+      setSponsorSaving(false);
+    }
+  };
+
+  const handleSponsorDelete = async (id) => {
+    if (!window.confirm("Delete this entry?")) return;
+    try {
+      const res = await fetch(`${API}/admin/sponsors/${id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${user.token}` },
+      });
+      if (!res.ok) { const d = await res.json(); throw new Error(d.error || "Delete failed"); }
+      setSponsorList((prev) => prev.filter((s) => s.id !== id));
+    } catch (deleteErr) {
+      setSponsorError(deleteErr.message);
+    }
+  };
+
   if (!user) return <div style={{ padding: 40, paddingTop: 110 }}>Please log in.</div>;
   if (error) return <div style={{ padding: 40, paddingTop: 110, color: "red" }}>{error}</div>;
-  if (loading) return <div style={{ padding: 40, paddingTop: 110 }}>Loading admin dashboard...</div>;
 
   return (
     <div style={{ paddingTop: 70, background: ASH, minHeight: "100vh" }}>
+      {badgeToast && (
+        <div style={{ position: "fixed", top: 86, right: 24, background: "#1b5e20", color: "white", padding: "10px 14px", borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,0.18)", zIndex: 1200, fontWeight: 700, fontSize: 13 }}>
+          {badgeToast}
+        </div>
+      )}
+
       <div style={{ background: `linear-gradient(135deg, ${NAVY}, #1a3168)`, padding: "40px 24px", marginBottom: 32 }}>
         <div style={{ maxWidth: 1200, margin: "0 auto" }}>
           <h1 style={{ color: "white", fontFamily: "'Playfair Display', Georgia, serif", fontSize: 40, fontWeight: 900, margin: 0 }}>Admin Dashboard</h1>
@@ -491,6 +745,36 @@ export default function AdminDashboard({ user, setPage }) {
             }}
           >
             Registrations ({registrations.length})
+          </button>
+          <button
+            onClick={() => setActiveTab("players")}
+            style={{
+              background: "none",
+              border: "none",
+              padding: "12px 0",
+              borderBottom: activeTab === "players" ? `3px solid ${NAVY}` : "none",
+              color: activeTab === "players" ? NAVY : "#999",
+              fontWeight: activeTab === "players" ? 700 : 600,
+              cursor: "pointer",
+              fontSize: 16,
+            }}
+          >
+            Players ({registrations.length})
+          </button>
+          <button
+            onClick={() => setActiveTab("paidCandidates")}
+            style={{
+              background: "none",
+              border: "none",
+              padding: "12px 0",
+              borderBottom: activeTab === "paidCandidates" ? `3px solid ${NAVY}` : "none",
+              color: activeTab === "paidCandidates" ? NAVY : "#999",
+              fontWeight: activeTab === "paidCandidates" ? 700 : 600,
+              cursor: "pointer",
+              fontSize: 16,
+            }}
+          >
+            Paid Candidates ({paidRegistrations.length})
           </button>
           <button
             onClick={() => setActiveTab("paymentSettings")}
@@ -521,6 +805,21 @@ export default function AdminDashboard({ user, setPage }) {
             }}
           >
             Users ({users.length})
+          </button>
+          <button
+            onClick={() => setActiveTab("staff")}
+            style={{
+              background: "none",
+              border: "none",
+              padding: "12px 0",
+              borderBottom: activeTab === "staff" ? `3px solid ${NAVY}` : "none",
+              color: activeTab === "staff" ? NAVY : "#999",
+              fontWeight: activeTab === "staff" ? 700 : 600,
+              cursor: "pointer",
+              fontSize: 16,
+            }}
+          >
+            Staff ({staffUsers.length})
           </button>
           <button
             onClick={() => setActiveTab("content")}
@@ -717,6 +1016,167 @@ export default function AdminDashboard({ user, setPage }) {
           </div>
         )}
 
+        {activeTab === "players" && (
+          <div style={{ background: "white", borderRadius: 16, padding: 24, boxShadow: "0 4px 24px rgba(0,0,0,0.06)" }}>
+            <h3 style={{ color: NAVY, marginTop: 0, marginBottom: 20 }}>Registered Players</h3>
+
+            {loading ? (
+              <div style={{ display: "grid", gap: 14 }}>
+                {[1, 2, 3].map((skeletonItem) => (
+                  <div key={skeletonItem} style={{ border: "1px solid #eceff1", borderRadius: 12, padding: 18, background: "#fafafa" }}>
+                    <div style={{ height: 18, width: "35%", background: "#e8edf2", borderRadius: 6, marginBottom: 10 }} />
+                    <div style={{ height: 12, width: "55%", background: "#eef2f6", borderRadius: 6, marginBottom: 12 }} />
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      <div style={{ height: 28, width: 120, background: "#eef2f6", borderRadius: 20 }} />
+                      <div style={{ height: 28, width: 100, background: "#eef2f6", borderRadius: 20 }} />
+                      <div style={{ height: 28, width: 140, background: "#eef2f6", borderRadius: 20 }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={{ display: "grid", gap: 16 }}>
+                {registrations.map((reg) => (
+                  <div key={reg.id} style={{ border: "1px solid #e8e8e8", borderRadius: 12, padding: 20 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12, marginBottom: 12 }}>
+                      <div>
+                        <div style={{ fontWeight: 800, color: NAVY, fontSize: 16 }}>{reg.playerName}</div>
+                        <div style={{ color: "#888", fontSize: 13, marginTop: 2 }}>
+                          {reg.age} yrs &bull; {reg.gender} &bull; {reg.program}
+                        </div>
+                        <div style={{ marginTop: 6 }}>
+                          <span style={{ background: reg.status === "Paid" ? "#e8f5e9" : "#fff3e0", color: reg.status === "Paid" ? "#2e7d32" : "#e65100", padding: "3px 8px", borderRadius: 4, fontSize: 12, fontWeight: 600 }}>
+                            {reg.status}
+                          </span>
+                          {reg.User?.parentName && (
+                            <span style={{ marginLeft: 8, color: "#999", fontSize: 12 }}>Parent: {reg.User.parentName}</span>
+                          )}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setBadgeEditId(badgeEditId === reg.id ? null : reg.id);
+                          setBadgeSelections(reg.badges || []);
+                          setBadgeMessage("");
+                        }}
+                        style={{
+                          background: badgeEditId === reg.id ? "#e0e0e0" : "#e3f2fd",
+                          color: badgeEditId === reg.id ? "#333" : "#1565c0",
+                          border: `1px solid ${badgeEditId === reg.id ? "#ccc" : "#90caf9"}`,
+                          borderRadius: 8,
+                          padding: "8px 16px",
+                          fontWeight: 700,
+                          cursor: "pointer",
+                          fontSize: 13,
+                        }}
+                      >
+                        {badgeEditId === reg.id ? "Cancel" : "🏅 Assign Badges"}
+                      </button>
+                    </div>
+
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                      {(reg.badges || []).length === 0 ? (
+                        <span style={{ color: "#bbb", fontSize: 12, fontStyle: "italic" }}>No badges awarded yet</span>
+                      ) : (
+                        (reg.badges || []).map((key) => {
+                          const badge = BADGES[key];
+                          if (!badge) return null;
+                          return (
+                            <span
+                              key={key}
+                              title={badge.description}
+                              style={{
+                                background: badge.bg,
+                                color: badge.color,
+                                border: `1.5px solid ${badge.border}`,
+                                borderRadius: 20,
+                                padding: "4px 12px",
+                                fontSize: 12,
+                                fontWeight: 700,
+                              }}
+                            >
+                              {badge.emoji} {badge.label}
+                            </span>
+                          );
+                        })
+                      )}
+                    </div>
+
+                    {badgeEditId === reg.id && (
+                      <div style={{ marginTop: 16, background: "#f9fafb", border: "1px solid #e0e0e0", borderRadius: 10, padding: 16 }}>
+                        <div style={{ fontWeight: 700, color: NAVY, fontSize: 13, marginBottom: 10 }}>Toggle badges for {reg.playerName}:</div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                          {BADGE_LIST.map((badge) => {
+                            const selected = badgeSelections.includes(badge.key);
+                            return (
+                              <button
+                                key={badge.key}
+                                type="button"
+                                onClick={() =>
+                                  setBadgeSelections((current) =>
+                                    selected
+                                      ? current.filter((k) => k !== badge.key)
+                                      : [...current, badge.key],
+                                  )
+                                }
+                                style={{
+                                  background: selected ? badge.bg : "#fff",
+                                  color: selected ? badge.color : "#666",
+                                  border: `1.5px solid ${selected ? badge.border : "#ddd"}`,
+                                  borderRadius: 20,
+                                  padding: "6px 14px",
+                                  fontSize: 13,
+                                  fontWeight: selected ? 700 : 400,
+                                  cursor: "pointer",
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: 6,
+                                  transition: "all 0.15s",
+                                }}
+                              >
+                                <span style={{ fontSize: 16 }}>{badge.emoji}</span> {badge.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <div style={{ display: "flex", gap: 10, marginTop: 14, alignItems: "center" }}>
+                          <button
+                            type="button"
+                            disabled={badgeSaving}
+                            onClick={handleAssignBadges}
+                            style={{ background: NAVY, color: "white", border: "none", padding: "10px 20px", borderRadius: 8, fontWeight: 700, cursor: "pointer", fontSize: 14 }}
+                          >
+                            {badgeSaving ? "Saving…" : "Save Badges"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => { setBadgeEditId(null); setBadgeMessage(""); }}
+                            style={{ background: "#e0e0e0", color: "#333", border: "none", padding: "10px 20px", borderRadius: 8, fontWeight: 700, cursor: "pointer", fontSize: 14 }}
+                          >
+                            Cancel
+                          </button>
+                          {badgeMessage && (
+                            <span style={{ fontSize: 13, color: badgeMessage.startsWith("Badges saved") ? "green" : "red", fontWeight: 600 }}>
+                              {badgeMessage}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+
+                {!registrations.length && (
+                  <div style={{ padding: "18px 14px", border: "1px dashed #cfd8dc", borderRadius: 10, color: "#607d8b", fontSize: 14 }}>
+                    No registered players found yet.
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         {activeTab === "paymentSettings" && (
           <div style={{ background: "white", borderRadius: 16, padding: 24, boxShadow: "0 4px 24px rgba(0,0,0,0.06)" }}>
             <form onSubmit={handleSavePaymentConfig} style={{ padding: 16, border: "1px solid #e8e8e8", borderRadius: 10 }}>
@@ -835,14 +1295,116 @@ export default function AdminDashboard({ user, setPage }) {
                     <td style={{ padding: 12, color: "#333" }}>{u.parentName || "-"}</td>
                     <td style={{ padding: 12, color: "#333" }}>{u.phone || "-"}</td>
                     <td style={{ padding: 12 }}>
-                      <span style={{ background: u.isAdmin ? "#e3f2fd" : "#f5f5f5", color: u.isAdmin ? "#1565c0" : "#555", padding: "4px 8px", borderRadius: 4, fontSize: 12, fontWeight: 600 }}>
-                        {u.isAdmin ? "Admin" : "User"}
+                      <span style={{ background: u.isAdmin ? "#e3f2fd" : u.isStaff ? "#e8f5e9" : "#f5f5f5", color: u.isAdmin ? "#1565c0" : u.isStaff ? "#2e7d32" : "#555", padding: "4px 8px", borderRadius: 4, fontSize: 12, fontWeight: 600 }}>
+                        {u.isAdmin ? "Admin" : u.isStaff ? "Staff" : "User"}
                       </span>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {activeTab === "staff" && (
+          <div style={{ display: "grid", gap: 24 }}>
+            <div style={{ background: "white", borderRadius: 16, padding: 24, boxShadow: "0 4px 24px rgba(0,0,0,0.06)" }}>
+              <h3 style={{ color: NAVY, marginTop: 0, marginBottom: 16 }}>Create Staff Account</h3>
+              <form onSubmit={handleCreateStaff} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>
+                <div>
+                  <label style={{ display: "block", fontSize: 12, color: "#666", marginBottom: 4 }}>Username</label>
+                  <input value={staffForm.username} onChange={(event) => setStaffForm((current) => ({ ...current, username: event.target.value }))} style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: "1px solid #ccc" }} />
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: 12, color: "#666", marginBottom: 4 }}>Email</label>
+                  <input type="email" value={staffForm.email} onChange={(event) => setStaffForm((current) => ({ ...current, email: event.target.value }))} style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: "1px solid #ccc" }} />
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: 12, color: "#666", marginBottom: 4 }}>Full Name</label>
+                  <input value={staffForm.parentName} onChange={(event) => setStaffForm((current) => ({ ...current, parentName: event.target.value }))} style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: "1px solid #ccc" }} />
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: 12, color: "#666", marginBottom: 4 }}>Phone</label>
+                  <input value={staffForm.phone} onChange={(event) => setStaffForm((current) => ({ ...current, phone: event.target.value }))} style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: "1px solid #ccc" }} />
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: 12, color: "#666", marginBottom: 4 }}>Password</label>
+                  <input type="password" value={staffForm.password} onChange={(event) => setStaffForm((current) => ({ ...current, password: event.target.value }))} style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: "1px solid #ccc" }} />
+                </div>
+                <div style={{ alignSelf: "end" }}>
+                  <button type="submit" disabled={staffSaving} style={{ background: NAVY, color: "white", border: "none", padding: "10px 14px", borderRadius: 6, fontWeight: 700, cursor: "pointer" }}>
+                    {staffSaving ? "Creating..." : "Create Staff"}
+                  </button>
+                </div>
+              </form>
+              {staffError && <div style={{ color: "red", marginTop: 10 }}>{staffError}</div>}
+              {staffMessage && <div style={{ color: "green", marginTop: 10 }}>{staffMessage}</div>}
+            </div>
+
+            <div style={{ background: "white", borderRadius: 16, padding: 24, boxShadow: "0 4px 24px rgba(0,0,0,0.06)", overflowX: "auto" }}>
+              <h3 style={{ color: NAVY, marginTop: 0, marginBottom: 16 }}>Staff List</h3>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead>
+                  <tr style={{ borderBottom: "2px solid #eee" }}>
+                    <th style={{ textAlign: "left", padding: 12, color: NAVY, fontWeight: 700 }}>Name</th>
+                    <th style={{ textAlign: "left", padding: 12, color: NAVY, fontWeight: 700 }}>Username</th>
+                    <th style={{ textAlign: "left", padding: 12, color: NAVY, fontWeight: 700 }}>Email</th>
+                    <th style={{ textAlign: "left", padding: 12, color: NAVY, fontWeight: 700 }}>Phone</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {staffUsers.map((staffUser) => (
+                    <tr key={staffUser.id} style={{ borderBottom: "1px solid #eee" }}>
+                      <td style={{ padding: 12, color: "#333" }}>{staffUser.parentName || "-"}</td>
+                      <td style={{ padding: 12, color: "#333" }}>{staffUser.username}</td>
+                      <td style={{ padding: 12, color: "#333" }}>{staffUser.email}</td>
+                      <td style={{ padding: 12, color: "#333" }}>{staffUser.phone || "-"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {!staffUsers.length && <div style={{ color: "#777", marginTop: 12 }}>No staff accounts found yet.</div>}
+            </div>
+          </div>
+        )}
+
+        {activeTab === "paidCandidates" && (
+          <div style={{ background: "white", borderRadius: 16, padding: 24, boxShadow: "0 4px 24px rgba(0,0,0,0.06)", overflowX: "auto" }}>
+            <h3 style={{ color: NAVY, marginTop: 0, marginBottom: 10 }}>Paid Candidates</h3>
+            <div style={{ marginBottom: 16, display: "flex", gap: 16, flexWrap: "wrap" }}>
+              <div style={{ background: ASH, borderRadius: 10, padding: "10px 14px" }}>
+                <div style={{ color: "#666", fontSize: 12 }}>Total Paid Candidates</div>
+                <div style={{ color: NAVY, fontWeight: 800, fontSize: 20 }}>{paidRegistrations.length}</div>
+              </div>
+              <div style={{ background: ASH, borderRadius: 10, padding: "10px 14px" }}>
+                <div style={{ color: "#666", fontSize: 12 }}>Total Amount Received</div>
+                <div style={{ color: NAVY, fontWeight: 800, fontSize: 20 }}>NGN {totalPaidAmount.toLocaleString()}</div>
+              </div>
+            </div>
+
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr style={{ borderBottom: "2px solid #eee" }}>
+                  <th style={{ textAlign: "left", padding: 12, color: NAVY, fontWeight: 700 }}>Player</th>
+                  <th style={{ textAlign: "left", padding: 12, color: NAVY, fontWeight: 700 }}>Parent</th>
+                  <th style={{ textAlign: "left", padding: 12, color: NAVY, fontWeight: 700 }}>Program</th>
+                  <th style={{ textAlign: "left", padding: 12, color: NAVY, fontWeight: 700 }}>Amount</th>
+                  <th style={{ textAlign: "left", padding: 12, color: NAVY, fontWeight: 700 }}>Confirmed At</th>
+                </tr>
+              </thead>
+              <tbody>
+                {paidRegistrations.map((registration) => (
+                  <tr key={registration.id} style={{ borderBottom: "1px solid #eee" }}>
+                    <td style={{ padding: 12, color: "#333" }}>{registration.playerName}</td>
+                    <td style={{ padding: 12, color: "#333" }}>{registration.User?.parentName || "-"}</td>
+                    <td style={{ padding: 12, color: "#333" }}>{registration.program}</td>
+                    <td style={{ padding: 12, color: "#333", fontWeight: 700 }}>NGN {Number(registration.BillingInfo?.selectedAmount ?? registration.BillingInfo?.amountDue ?? 0).toLocaleString()}</td>
+                    <td style={{ padding: 12, color: "#666", fontSize: 13 }}>{registration.BillingInfo?.paymentConfirmedAt ? new Date(registration.BillingInfo.paymentConfirmedAt).toLocaleString() : "-"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {!paidRegistrations.length && <div style={{ color: "#777", marginTop: 12 }}>No paid candidates found yet.</div>}
           </div>
         )}
 
@@ -881,17 +1443,32 @@ export default function AdminDashboard({ user, setPage }) {
                 <Input label="Caption" name="caption" value={uploadForm.caption} onChange={handleUploadChange} />
 
                 <div style={{ marginBottom: 18 }}>
-                  <label style={{ display: "block", fontWeight: 700, fontSize: 13, color: NAVY, marginBottom: 6, letterSpacing: 0.5 }}>
-                    Media File <span style={{ color: NAVY }}> *</span>
-                  </label>
-                  <input
-                    name="mediaFile"
-                    type="file"
-                    accept="image/*,video/*"
-                    onChange={handleUploadChange}
-                    required
-                  />
+                  <label style={{ display: "block", fontWeight: 700, fontSize: 13, color: NAVY, marginBottom: 8, letterSpacing: 0.5 }}>Upload Type</label>
+                  <div style={{ display: "flex", gap: 28 }}>
+                    {[{ value: "file", label: "File Upload" }, { value: "youtube", label: "YouTube Link" }].map((opt) => (
+                      <label key={opt.value} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontWeight: uploadForm.uploadType === opt.value ? 800 : 500, color: uploadForm.uploadType === opt.value ? NAVY : "#555", fontSize: 14 }}>
+                        <input type="radio" name="uploadType" value={opt.value} checked={uploadForm.uploadType === opt.value} onChange={handleUploadChange} />
+                        {opt.label}
+                      </label>
+                    ))}
+                  </div>
                 </div>
+
+                {uploadForm.uploadType === "youtube" ? (
+                  <Input label="YouTube URL" name="youtubeUrl" value={uploadForm.youtubeUrl} onChange={handleUploadChange} required />
+                ) : (
+                  <div style={{ marginBottom: 18 }}>
+                    <label style={{ display: "block", fontWeight: 700, fontSize: 13, color: NAVY, marginBottom: 6, letterSpacing: 0.5 }}>
+                      Media File <span style={{ color: "red" }}>*</span>
+                    </label>
+                    <input
+                      name="mediaFile"
+                      type="file"
+                      accept="image/*,video/*"
+                      onChange={handleUploadChange}
+                    />
+                  </div>
+                )}
 
                 <button
                   type="submit"
@@ -915,8 +1492,10 @@ export default function AdminDashboard({ user, setPage }) {
                 {galleryMedia.map((item) => (
                   <div key={item.id} style={{ border: "1px solid #e8e8e8", borderRadius: 10, padding: 12, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14 }}>
                     <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-                      <div style={{ width: 72, height: 52, background: "#f0f2f7", borderRadius: 8, overflow: "hidden" }}>
-                        {item.mediaType === "video" ? (
+                      <div style={{ width: 72, height: 52, background: "#f0f2f7", borderRadius: 8, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        {item.mimeType === "youtube" ? (
+                          <div style={{ fontSize: 22 }}>▶️</div>
+                        ) : item.mediaType === "video" ? (
                           <video src={toMediaUrl(item.mediaUrl)} style={{ width: "100%", height: "100%", objectFit: "cover" }} muted />
                         ) : (
                           <img src={toMediaUrl(item.mediaUrl)} alt={item.title} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
@@ -924,7 +1503,7 @@ export default function AdminDashboard({ user, setPage }) {
                       </div>
                       <div>
                         <div style={{ color: NAVY, fontWeight: 800 }}>{item.title}</div>
-                        <div style={{ color: "#666", fontSize: 13 }}>{item.mediaType.toUpperCase()} · {item.caption || "No caption"}</div>
+                        <div style={{ color: "#666", fontSize: 13 }}>{item.mimeType === "youtube" ? "YOUTUBE" : item.mediaType.toUpperCase()} · {item.caption || "No caption"}</div>
                       </div>
                     </div>
                     <button
@@ -936,6 +1515,71 @@ export default function AdminDashboard({ user, setPage }) {
                   </div>
                 ))}
                 {galleryMedia.length === 0 && <div style={{ color: "#777" }}>No media uploaded yet.</div>}
+              </div>
+            </div>
+
+            {/* Sponsors & Partners Management */}
+            <div style={{ background: "white", borderRadius: 16, padding: 24, boxShadow: "0 4px 24px rgba(0,0,0,0.06)" }}>
+              <h3 style={{ color: NAVY, marginTop: 0, marginBottom: 4 }}>Sponsors &amp; Partners</h3>
+              <p style={{ color: "#666", fontSize: 14, marginBottom: 20 }}>Add a sponsor or partner — their logo and info will appear on the respective public page.</p>
+              <form onSubmit={handleSponsorSubmit}>
+                <Input label="Name" name="name" value={sponsorForm.name} onChange={handleSponsorChange} required />
+                <div style={{ marginBottom: 18 }}>
+                  <label style={{ display: "block", fontWeight: 700, fontSize: 13, color: NAVY, marginBottom: 8, letterSpacing: 0.5 }}>Type</label>
+                  <div style={{ display: "flex", gap: 24 }}>
+                    {["sponsor", "partner"].map((t) => (
+                      <label key={t} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontWeight: sponsorForm.type === t ? 800 : 500, color: sponsorForm.type === t ? NAVY : "#555" }}>
+                        <input type="radio" name="type" value={t} checked={sponsorForm.type === t} onChange={handleSponsorChange} />
+                        {t.charAt(0).toUpperCase() + t.slice(1)}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <Input label="Description" name="description" value={sponsorForm.description} onChange={handleSponsorChange} />
+                <Input label="Website URL (optional)" name="websiteUrl" value={sponsorForm.websiteUrl} onChange={handleSponsorChange} />
+                <div style={{ marginBottom: 18 }}>
+                  <label style={{ display: "block", fontWeight: 700, fontSize: 13, color: NAVY, marginBottom: 6, letterSpacing: 0.5 }}>
+                    Logo Image <span style={{ color: "red" }}>*</span>
+                  </label>
+                  <input type="file" name="logo" accept="image/*" onChange={handleSponsorChange} required />
+                </div>
+                <button
+                  type="submit"
+                  disabled={sponsorSaving}
+                  style={{ background: NAVY, color: "white", border: "none", padding: "12px 20px", borderRadius: 8, fontWeight: 700, cursor: "pointer" }}
+                >
+                  {sponsorSaving ? "Saving..." : "Add Entry"}
+                </button>
+                {sponsorError && <div style={{ color: "red", marginTop: 12 }}>{sponsorError}</div>}
+                {sponsorMessage && <div style={{ color: "green", marginTop: 12 }}>{sponsorMessage}</div>}
+              </form>
+
+              <div style={{ marginTop: 28, display: "grid", gap: 12 }}>
+                {sponsorList.length === 0 && <div style={{ color: "#777" }}>No sponsors or partners added yet.</div>}
+                {sponsorList.map((s) => (
+                  <div key={s.id} style={{ border: "1px solid #e8e8e8", borderRadius: 10, padding: 12, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14 }}>
+                    <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+                      <div style={{ width: 64, height: 48, background: "#f0f2f7", borderRadius: 8, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        <img src={toMediaUrl(s.logoUrl)} alt={s.name} style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
+                      </div>
+                      <div>
+                        <div style={{ color: NAVY, fontWeight: 800, fontSize: 14 }}>{s.name}</div>
+                        <div style={{ color: "#666", fontSize: 12 }}>
+                          <span style={{ background: s.type === "sponsor" ? "#fff3e0" : "#e8f5e9", color: s.type === "sponsor" ? "#e65100" : "#2e7d32", fontWeight: 700, padding: "2px 8px", borderRadius: 20, fontSize: 11 }}>
+                            {s.type.toUpperCase()}
+                          </span>
+                          {s.description && <span style={{ marginLeft: 8 }}>{s.description.slice(0, 60)}{s.description.length > 60 ? "…" : ""}</span>}
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleSponsorDelete(s.id)}
+                      style={{ background: "#fbe9e7", color: "#bf360c", border: "none", padding: "8px 12px", borderRadius: 6, fontWeight: 700, cursor: "pointer", flexShrink: 0 }}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                ))}
               </div>
             </div>
           </div>

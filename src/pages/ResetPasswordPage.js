@@ -2,11 +2,9 @@ import { useState, useEffect } from "react";
 import Input from "../components/common/Input";
 import { API } from "../constants/api";
 import { ASH, NAVY } from "../constants/theme";
-import { confirmFirebasePasswordReset } from "../services/firebaseAuth";
 
 export default function ResetPasswordPage({ setPage }) {
   const [token, setToken] = useState("");
-  const [oobCode, setOobCode] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -14,15 +12,8 @@ export default function ResetPasswordPage({ setPage }) {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    // Support both backend token reset and Firebase oobCode reset links.
     const params = new URLSearchParams(window.location.search);
     const resetToken = params.get("token");
-    const firebaseCode = params.get("oobCode");
-    if (firebaseCode) {
-      setOobCode(firebaseCode);
-      return;
-    }
-
     if (!resetToken) {
       setError("Invalid reset link. Please request a new one.");
     } else {
@@ -51,18 +42,14 @@ export default function ResetPasswordPage({ setPage }) {
     setSuccess("");
 
     try {
-      if (oobCode) {
-        await confirmFirebasePasswordReset(oobCode, password);
-      } else {
-        const response = await fetch(`${API}/reset-password`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ token, password }),
-        });
-        const data = await response.json();
+      const response = await fetch(`${API}/reset-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, password }),
+      });
+      const data = await response.json();
 
-        if (!response.ok) throw new Error(data.error || "Failed to reset password");
-      }
+      if (!response.ok) throw new Error(data.error || "Failed to reset password");
       
       setSuccess("Password reset successful! Redirecting to login...");
       setTimeout(() => setPage("Login"), 2000);
@@ -73,7 +60,7 @@ export default function ResetPasswordPage({ setPage }) {
     }
   };
 
-  if (!token && !oobCode) {
+  if (!token) {
     return (
       <div style={{ paddingTop: 70, background: ASH, minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
         <div style={{ maxWidth: 420, background: "white", borderRadius: 16, padding: 40, boxShadow: "0 4px 24px rgba(0,0,0,0.06)" }}>

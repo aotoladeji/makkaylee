@@ -2,7 +2,6 @@ import { useState } from "react";
 import Input from "../components/common/Input";
 import { API } from "../constants/api";
 import { ASH, NAVY } from "../constants/theme";
-import { sendFirebaseResetEmail } from "../services/firebaseAuth";
 
 export default function ForgotPasswordPage({ setPage }) {
   const [email, setEmail] = useState("");
@@ -22,18 +21,14 @@ export default function ForgotPasswordPage({ setPage }) {
     setSuccess("");
 
     try {
-      try {
-        await sendFirebaseResetEmail(email);
-      } catch {
-        const response = await fetch(`${API}/forgot-password`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email }),
-        });
-        const data = await response.json();
+      const response = await fetch(`${API}/forgot-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      const data = await response.json();
 
-        if (!response.ok) throw new Error(data.error || "Failed to send reset link");
-      }
+      if (!response.ok) throw new Error(data.error || "Failed to send reset link");
       
       setSuccess("Reset link sent to your email. Check your inbox.");
       setEmail("");

@@ -5,7 +5,6 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const fs = require('fs');
-const admin = require('firebase-admin');
 const multer = require('multer');
 const rateLimit = require('express-rate-limit');
 const sequelize = require('./db');
@@ -17,14 +16,6 @@ require('dotenv').config({ path: path.join(__dirname, '.env') });
 
 const SECRET = process.env.JWT_SECRET || 'your_super_secret_jwt_key_change_in_production';
 const JWT_EXPIRE = process.env.JWT_EXPIRE || '1d';
-
-function getFirebaseAdminAuth() {
-  if (!admin.apps.length) {
-    admin.initializeApp();
-  }
-
-  return admin.auth();
-}
 
 // Keep schema sync opt-in for deployment safety.
 if (process.env.DB_SYNC === 'true') {
@@ -211,28 +202,6 @@ app.post('/api/login', async (req, res) => {
     res.json({ token });
   } catch (err) {
     res.status(400).json({ error: err.message });
-  }
-});
-
-// Firebase login (email/password handled client-side, token verified server-side)
-app.post('/api/login/firebase', async (req, res) => {
-  try {
-    const { idToken } = req.body;
-    if (!idToken) return res.status(400).json({ error: 'idToken is required' });
-
-    const decoded = await getFirebaseAdminAuth().verifyIdToken(idToken);
-    const email = decoded.email;
-    if (!email) return res.status(400).json({ error: 'Firebase token does not contain email' });
-
-    const user = await User.findOne({ where: { email } });
-    if (!user) {
-      return res.status(401).json({ error: 'No app account found for this Firebase user. Please register first.' });
-    }
-
-    const token = jwt.sign({ id: user.id, isAdmin: user.isAdmin, isStaff: user.isStaff }, SECRET, { expiresIn: JWT_EXPIRE });
-    res.json({ token, username: user.username });
-  } catch (err) {
-    res.status(401).json({ error: 'Invalid Firebase login token' });
   }
 });
 

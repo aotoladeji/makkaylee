@@ -2,10 +2,14 @@ import { useState } from "react";
 import Input from "../components/common/Input";
 import { API } from "../constants/api";
 import { ASH, NAVY } from "../constants/theme";
+import { signInWithFirebase } from "../services/firebaseAuth";
 
 export default function LoginPage({ setUser, setPage }) {
   const [form, setForm] = useState({ username: "", password: "" });
+  const [firebaseForm, setFirebaseForm] = useState({ email: "", password: "" });
   const [error, setError] = useState("");
+  const [firebaseError, setFirebaseError] = useState("");
+  const [firebaseLoading, setFirebaseLoading] = useState(false);
 
   const handleChange = (event) => {
     setForm((current) => ({ ...current, [event.target.name]: event.target.value }));
@@ -44,6 +48,49 @@ export default function LoginPage({ setUser, setPage }) {
     }
   };
 
+  const handleFirebaseChange = (event) => {
+    setFirebaseForm((current) => ({ ...current, [event.target.name]: event.target.value }));
+  };
+
+  const handleFirebaseSubmit = async (event) => {
+    event.preventDefault();
+    setFirebaseError("");
+    setFirebaseLoading(true);
+
+    try {
+      const idToken = await signInWithFirebase(firebaseForm.email, firebaseForm.password);
+      const response = await fetch(`${API}/login/firebase`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ idToken }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Firebase login failed");
+
+      const payload = JSON.parse(atob(data.token.split(".")[1]));
+      const isAdmin = payload.isAdmin || false;
+      const isStaff = payload.isStaff || false;
+
+      localStorage.setItem("token", data.token);
+      localStorage.setItem("username", data.username || firebaseForm.email);
+      localStorage.setItem("isAdmin", isAdmin ? "1" : "0");
+      localStorage.setItem("isStaff", isStaff ? "1" : "0");
+
+      setUser({
+        username: data.username || firebaseForm.email,
+        token: data.token,
+        isAdmin,
+        isStaff,
+      });
+      setPage(isAdmin ? "Admin" : isStaff ? "StaffProfile" : "Dashboard");
+    } catch (submitError) {
+      setFirebaseError(submitError.message);
+    } finally {
+      setFirebaseLoading(false);
+    }
+  };
+
   return (
     <div style={{ padding: 40, maxWidth: 400, margin: "80px auto", background: "white", borderRadius: 12, boxShadow: "0 4px 24px rgba(0,0,0,0.08)" }}>
       <h2 style={{ color: NAVY, marginBottom: 24 }}>Login</h2>
@@ -65,6 +112,18 @@ export default function LoginPage({ setUser, setPage }) {
       </div>
       <div style={{ marginTop: 8, fontSize: 13 }}>
         Staff member? <button onClick={() => setPage("StaffLogin")} style={{ color: NAVY, background: "none", border: "none", cursor: "pointer", fontWeight: 700 }}>Staff sign in</button>
+      </div>
+
+      <div style={{ marginTop: 28, borderTop: "1px solid #ececec", paddingTop: 20 }}>
+        <h3 style={{ color: NAVY, margin: "0 0 12px", fontSize: 16 }}>Firebase Email Login</h3>
+        <form onSubmit={handleFirebaseSubmit}>
+          <Input label="Email" name="email" value={firebaseForm.email} onChange={handleFirebaseChange} required type="email" />
+          <Input label="Password" name="password" value={firebaseForm.password} onChange={handleFirebaseChange} required type="password" />
+          <button type="submit" disabled={firebaseLoading} style={{ background: NAVY, color: ASH, border: "none", padding: "12px 28px", borderRadius: 8, fontWeight: 800, cursor: firebaseLoading ? "not-allowed" : "pointer", width: "100%", marginTop: 12, opacity: firebaseLoading ? 0.7 : 1 }}>
+            {firebaseLoading ? "Signing in..." : "Login with Firebase"}
+          </button>
+          {firebaseError && <div style={{ color: "red", marginTop: 12 }}>{firebaseError}</div>}
+        </form>
       </div>
     </div>
   );

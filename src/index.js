@@ -3,6 +3,11 @@ import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import './index.css';
 import App from './App';
+import { initFirebaseAnalytics } from './firebase';
+
+initFirebaseAnalytics().catch((error) => {
+  console.warn('Firebase analytics initialization failed:', error);
+});
 
 
 const root = ReactDOM.createRoot(document.getElementById('root'));

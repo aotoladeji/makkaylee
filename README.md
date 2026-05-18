@@ -32,6 +32,13 @@ Frontend `.env` example:
 
 ```env
 REACT_APP_API_URL=http://localhost:5000/api
+REACT_APP_FIREBASE_API_KEY=your_api_key
+REACT_APP_FIREBASE_AUTH_DOMAIN=your_project.firebaseapp.com
+REACT_APP_FIREBASE_PROJECT_ID=your_project_id
+REACT_APP_FIREBASE_STORAGE_BUCKET=your_project.firebasestorage.app
+REACT_APP_FIREBASE_MESSAGING_SENDER_ID=your_sender_id
+REACT_APP_FIREBASE_APP_ID=your_app_id
+REACT_APP_FIREBASE_MEASUREMENT_ID=your_measurement_id
 GENERATE_SOURCEMAP=false
 ```
 
@@ -79,26 +86,27 @@ Frontend runs on `http://localhost:3000` and API on `http://localhost:5000`.
 npm run build
 ```
 
-## Deploy to Vercel
+## Deploy Frontend to Vercel
 
-This project can be deployed as:
+This project can be deployed with:
 
 - Frontend: static build from `build/`
-- Backend: serverless function at `/api/*`
+- Backend: Firebase Cloud Functions
 
 ### Required environment variables (Vercel)
 
-- `DATABASE_URL` (PostgreSQL connection string)
-- `JWT_SECRET`
-- `JWT_EXPIRE` (optional, defaults to `1d`)
-- `DB_SYNC` (optional, set to `false` in production)
-- `REACT_APP_API_URL` (optional, leave empty to use same-origin `/api`)
+- `REACT_APP_API_URL` (set this to your Firebase function API URL)
+- `REACT_APP_FIREBASE_API_KEY`
+- `REACT_APP_FIREBASE_AUTH_DOMAIN`
+- `REACT_APP_FIREBASE_PROJECT_ID`
+- `REACT_APP_FIREBASE_STORAGE_BUCKET`
+- `REACT_APP_FIREBASE_MESSAGING_SENDER_ID`
+- `REACT_APP_FIREBASE_APP_ID`
+- `REACT_APP_FIREBASE_MEASUREMENT_ID`
 
 ### Notes
 
-- `backend/db.js` uses `DATABASE_URL` in deployment and local DB vars in development.
-- Do not enable `DB_SYNC=true` in production unless you intentionally want runtime schema sync.
-- File uploads stored on local disk are ephemeral on serverless platforms. For production media/receipts, move to persistent object storage (for example, Cloudinary, S3, or Vercel Blob).
+- Keep your frontend and backend in separate deploy targets: Vercel for React, Firebase for API.
 
 ### Deploy command
 
@@ -106,61 +114,82 @@ This project can be deployed as:
 vercel --prod
 ```
 
-## Aiven PostgreSQL Setup
+## Deploy Backend to Firebase Functions
 
-### 1. Create the database in Aiven
-
-- Create a PostgreSQL service in Aiven.
-- In service settings, create a database (for example: `makkaylee_db`).
-- Create a database user and password.
-- Copy the connection URI from Aiven (the `postgres://...` URL).
-
-### 2. Configure backend environment
-
-In `backend/.env` for local testing against Aiven, set:
-
-```env
-DATABASE_URL=postgres://<USER>:<PASSWORD>@<HOST>:<PORT>/<DB>?sslmode=require
-DB_SSL=true
-DB_SSL_REJECT_UNAUTHORIZED=false
-JWT_SECRET=replace_with_strong_secret
-JWT_EXPIRE=1d
-DB_SYNC=true
-```
-
-Notes:
-
-- `DB_SYNC=true` is acceptable for initial setup/testing only.
-- For production, set `DB_SYNC=false` and use migrations.
-
-### 3. Configure Vercel environment variables
-
-Add the same values in your Vercel project:
-
-- `DATABASE_URL`
-- `DB_SSL=true`
-- `DB_SSL_REJECT_UNAUTHORIZED=false`
-- `JWT_SECRET`
-- `JWT_EXPIRE`
-- `DB_SYNC=false`
-
-### 4. Optional data migration from local PostgreSQL to Aiven
-
-Export local DB:
+### 1. Install Firebase CLI
 
 ```bash
-pg_dump -h localhost -U postgres -d makkaylee_db -Fc -f local.dump
+npm install -g firebase-tools
 ```
 
-Import into Aiven:
+### 2. Login and set project
 
 ```bash
-pg_restore --no-owner --no-acl --clean --if-exists \
-	-d "postgres://<USER>:<PASSWORD>@<HOST>:<PORT>/<DB>?sslmode=require" \
-	local.dump
+firebase login
+firebase use --add
 ```
 
-If `pg_restore` is unavailable on your machine, use Aiven's migration/import tools in the console.
+Then update `.firebaserc` with your real Firebase project ID.
+
+### 3. Install backend dependencies
+
+```bash
+npm --prefix backend install
+```
+
+### 4. Set backend runtime config as environment secrets
+
+```bash
+firebase functions:secrets:set DATABASE_URL
+firebase functions:secrets:set JWT_SECRET
+firebase functions:secrets:set JWT_EXPIRE
+firebase functions:secrets:set DB_SYNC
+```
+
+Use `DB_SYNC=false` in production.
+
+### 5. Deploy functions
+
+```bash
+firebase deploy --only functions
+```
+
+### 6. Point Vercel frontend to Firebase API
+
+Set `REACT_APP_API_URL` in Vercel to:
+
+```text
+https://us-central1-makkaylee-ec728.cloudfunctions.net/api/api
+```
+
+The second `/api` is your Express route prefix in this codebase.
+
+The frontend Firebase app initialization lives in `src/firebase.js` and is loaded from `src/index.js`.
+
+## Firebase Note
+
+This codebase currently uses Sequelize + PostgreSQL across backend routes.
+
+- Firebase Firestore is not a drop-in replacement for this backend.
+- To use Firebase as the main database, backend models and queries must be rewritten.
+- If you only want Firebase Hosting for frontend, keep backend API/database separate.
+
+## Firebase Auth Login Flow
+
+- Frontend now supports Firebase email/password sign-in.
+- After Firebase login, the app exchanges Firebase `idToken` at `POST /api/login/firebase`.
+- Backend verifies the Firebase token and returns the existing app JWT used by protected API routes.
+
+Requirement:
+
+- The Firebase account email must match a `User.email` value in your PostgreSQL app database.
+
+Password reset:
+
+- `ForgotPasswordPage` now tries Firebase reset email first.
+- `ResetPasswordPage` supports Firebase reset links (`oobCode`) and legacy backend token links (`token`).
+
+If you want, the backend can be migrated in phases to Firestore (users/auth, registrations, billing, media metadata) to reduce risk.
 
 ## Additional Notes
 

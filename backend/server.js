@@ -17,10 +17,12 @@ require('dotenv').config({ path: path.join(__dirname, '.env') });
 const SECRET = process.env.JWT_SECRET || 'your_super_secret_jwt_key_change_in_production';
 const JWT_EXPIRE = process.env.JWT_EXPIRE || '1d';
 
-// Force sync models to DB (add missing columns)
-sequelize.sync({ alter: true }).then(() => {
-  console.log('Database synchronized');
-});
+// Keep schema sync opt-in for deployment safety.
+if (process.env.DB_SYNC === 'true') {
+  sequelize.sync({ alter: true }).then(() => {
+    console.log('Database synchronized');
+  });
+}
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -1144,6 +1146,10 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Internal server error' });
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+  });
+}
+
+module.exports = app;

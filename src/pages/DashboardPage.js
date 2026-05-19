@@ -29,6 +29,7 @@ export default function DashboardPage({ user, setPage }) {
   const [passwordMessage, setPasswordMessage] = useState("");
   const [passwordError, setPasswordError] = useState("");
   const [passwordSaving, setPasswordSaving] = useState(false);
+  const [activeTab, setActiveTab] = useState("overview");
 
   useEffect(() => {
     if (!user) return;
@@ -202,6 +203,12 @@ export default function DashboardPage({ user, setPage }) {
       ? "Receipt Uploaded - Awaiting Confirmation"
       : "Pending Payment";
   const paymentStatusColor = billing?.paid ? "#43A047" : hasUploadedReceipt ? "#1565c0" : "#FFA000";
+  const tabs = [
+    { key: "overview", label: "Overview" },
+    { key: "badges", label: "Badges" },
+    { key: "children", label: "Children" },
+    { key: "security", label: "Security" },
+  ];
 
   return (
     <div style={{ paddingTop: 70, background: ASH, minHeight: "100vh" }}>
@@ -247,7 +254,30 @@ export default function DashboardPage({ user, setPage }) {
       </div>
 
       <div style={{ maxWidth: 1000, margin: "0 auto", padding: "48px 24px" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }} className="dashboard-grid">
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 24 }}>
+          {tabs.map((tab) => (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              style={{
+                border: "none",
+                borderRadius: 999,
+                padding: "10px 16px",
+                fontWeight: 800,
+                letterSpacing: 0.4,
+                cursor: "pointer",
+                background: activeTab === tab.key ? NAVY : "#e9edf6",
+                color: activeTab === tab.key ? "white" : "#314a80",
+              }}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {activeTab === "overview" && (
+          <>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }} className="dashboard-grid">
           <div style={{ background: "white", borderRadius: 16, padding: 32, boxShadow: "0 4px 24px rgba(0,0,0,0.06)" }}>
             <h3 style={{ color: NAVY, fontFamily: "'Playfair Display', Georgia, serif", fontSize: 20, marginBottom: 20 }}>Player Profile</h3>
             {[["Full Name", registration?.playerName], ["Age", `${registration?.age} years old`], ["Gender", registration?.gender], ["Programme", registration?.program]].map(([key, value]) => (
@@ -305,43 +335,25 @@ export default function DashboardPage({ user, setPage }) {
             )}
           </div>
 
-          <div style={{ background: "white", borderRadius: 16, padding: 32, boxShadow: "0 4px 24px rgba(0,0,0,0.06)" }}>
-            <h3 style={{ color: NAVY, fontFamily: "'Playfair Display', Georgia, serif", fontSize: 20, marginBottom: 20 }}>Security</h3>
-            <form onSubmit={handleChangePassword}>
-              <label style={{ display: "block", marginBottom: 6, color: "#666", fontSize: 13 }}>Current Password</label>
-              <input
-                type="password"
-                value={passwordForm.currentPassword}
-                onChange={(event) => setPasswordForm((current) => ({ ...current, currentPassword: event.target.value }))}
-                style={{ width: "100%", marginBottom: 12, padding: "10px 12px", border: "1px solid #ccc", borderRadius: 8 }}
-              />
-              <label style={{ display: "block", marginBottom: 6, color: "#666", fontSize: 13 }}>New Password</label>
-              <input
-                type="password"
-                value={passwordForm.newPassword}
-                onChange={(event) => setPasswordForm((current) => ({ ...current, newPassword: event.target.value }))}
-                style={{ width: "100%", marginBottom: 12, padding: "10px 12px", border: "1px solid #ccc", borderRadius: 8 }}
-              />
-              <label style={{ display: "block", marginBottom: 6, color: "#666", fontSize: 13 }}>Confirm New Password</label>
-              <input
-                type="password"
-                value={passwordForm.confirmPassword}
-                onChange={(event) => setPasswordForm((current) => ({ ...current, confirmPassword: event.target.value }))}
-                style={{ width: "100%", marginBottom: 12, padding: "10px 12px", border: "1px solid #ccc", borderRadius: 8 }}
-              />
-              <button type="submit" disabled={passwordSaving} style={{ background: NAVY, color: "white", border: "none", padding: "10px 14px", borderRadius: 8, fontWeight: 700, cursor: "pointer" }}>
-                {passwordSaving ? "Saving..." : "Change Password"}
-              </button>
-              {passwordError && <div style={{ color: "red", marginTop: 10, fontSize: 13 }}>{passwordError}</div>}
-              {passwordMessage && <div style={{ color: "green", marginTop: 10, fontSize: 13 }}>{passwordMessage}</div>}
-            </form>
-          </div>
-        </div>
+            </div>
 
-        {(() => {
+            <div style={{ marginTop: 24, background: `linear-gradient(135deg, ${NAVY}, #1a3168)`, borderRadius: 16, padding: "32px 40px" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 24 }}>
+                {[{ label: "Next Session", value: BRAND.nextSession }, { label: "Training Venue", value: `${BRAND.venue}, Ibadan` }, { label: "Academy Reg.", value: BRAND.reg }, { label: "Admin Contact", value: BRAND.phone }].map((item) => (
+                  <div key={item.label}>
+                    <div style={{ color: "rgba(255,255,255,0.6)", fontSize: 12, marginBottom: 4 }}>{item.label}</div>
+                    <div style={{ color: "white", fontWeight: 700, fontSize: 14 }}>{item.value}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
+
+        {activeTab === "badges" && (() => {
           const awardedBadges = (registration?.badges || []).map((key) => BADGES[key]).filter(Boolean);
           return (
-            <div style={{ marginTop: 24, background: "white", borderRadius: 16, padding: 32, boxShadow: "0 4px 24px rgba(0,0,0,0.06)" }}>
+            <div style={{ background: "white", borderRadius: 16, padding: 32, boxShadow: "0 4px 24px rgba(0,0,0,0.06)" }}>
               <h3 style={{ color: NAVY, fontFamily: "'Playfair Display', Georgia, serif", fontSize: 20, marginTop: 0, marginBottom: 20 }}>Performance Badges</h3>
               {awardedBadges.length === 0 ? (
                 <div style={{ textAlign: "center", padding: "32px 0", color: "#aaa" }}>
@@ -379,7 +391,8 @@ export default function DashboardPage({ user, setPage }) {
           );
         })()}
 
-        <div style={{ marginTop: 24, background: "white", borderRadius: 16, padding: 24, boxShadow: "0 4px 24px rgba(0,0,0,0.06)" }}>
+        {activeTab === "children" && (
+          <div style={{ background: "white", borderRadius: 16, padding: 24, boxShadow: "0 4px 24px rgba(0,0,0,0.06)" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
             <h3 style={{ color: NAVY, fontFamily: "'Playfair Display', Georgia, serif", fontSize: 24, margin: 0 }}>My Children</h3>
             <button
@@ -508,18 +521,45 @@ export default function DashboardPage({ user, setPage }) {
 
           {childActionError && <div style={{ color: "#b71c1c", marginTop: 12 }}>{childActionError}</div>}
           {childActionMessage && <div style={{ color: "#2e7d32", marginTop: 12 }}>{childActionMessage}</div>}
-        </div>
-
-        <div style={{ marginTop: 24, background: `linear-gradient(135deg, ${NAVY}, #1a3168)`, borderRadius: 16, padding: "32px 40px" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 24 }}>
-            {[{ label: "Next Session", value: BRAND.nextSession }, { label: "Training Venue", value: `${BRAND.venue}, Ibadan` }, { label: "Academy Reg.", value: BRAND.reg }, { label: "Admin Contact", value: BRAND.phone }].map((item) => (
-              <div key={item.label}>
-                <div style={{ color: "rgba(255,255,255,0.6)", fontSize: 12, marginBottom: 4 }}>{item.label}</div>
-                <div style={{ color: "white", fontWeight: 700, fontSize: 14 }}>{item.value}</div>
-              </div>
-            ))}
           </div>
-        </div>
+        )}
+
+        {activeTab === "security" && (
+          <div style={{ background: "white", borderRadius: 16, padding: 32, boxShadow: "0 4px 24px rgba(0,0,0,0.06)" }}>
+          <h3 style={{ color: NAVY, fontFamily: "'Playfair Display', Georgia, serif", fontSize: 20, marginBottom: 8 }}>Security</h3>
+          <p style={{ marginTop: 0, marginBottom: 20, color: "#666", fontSize: 13 }}>
+            Keep your account safe by setting a strong password and updating it regularly.
+          </p>
+          <form onSubmit={handleChangePassword} style={{ maxWidth: 520 }}>
+            <label style={{ display: "block", marginBottom: 6, color: "#666", fontSize: 13 }}>Current Password</label>
+            <input
+              type="password"
+              value={passwordForm.currentPassword}
+              onChange={(event) => setPasswordForm((current) => ({ ...current, currentPassword: event.target.value }))}
+              style={{ width: "100%", marginBottom: 12, padding: "10px 12px", border: "1px solid #ccc", borderRadius: 8 }}
+            />
+            <label style={{ display: "block", marginBottom: 6, color: "#666", fontSize: 13 }}>New Password</label>
+            <input
+              type="password"
+              value={passwordForm.newPassword}
+              onChange={(event) => setPasswordForm((current) => ({ ...current, newPassword: event.target.value }))}
+              style={{ width: "100%", marginBottom: 12, padding: "10px 12px", border: "1px solid #ccc", borderRadius: 8 }}
+            />
+            <label style={{ display: "block", marginBottom: 6, color: "#666", fontSize: 13 }}>Confirm New Password</label>
+            <input
+              type="password"
+              value={passwordForm.confirmPassword}
+              onChange={(event) => setPasswordForm((current) => ({ ...current, confirmPassword: event.target.value }))}
+              style={{ width: "100%", marginBottom: 12, padding: "10px 12px", border: "1px solid #ccc", borderRadius: 8 }}
+            />
+            <button type="submit" disabled={passwordSaving} style={{ background: NAVY, color: "white", border: "none", padding: "10px 14px", borderRadius: 8, fontWeight: 700, cursor: "pointer" }}>
+              {passwordSaving ? "Saving..." : "Change Password"}
+            </button>
+            {passwordError && <div style={{ color: "red", marginTop: 10, fontSize: 13 }}>{passwordError}</div>}
+            {passwordMessage && <div style={{ color: "green", marginTop: 10, fontSize: 13 }}>{passwordMessage}</div>}
+          </form>
+          </div>
+        )}
       </div>
     </div>
   );

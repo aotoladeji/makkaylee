@@ -108,8 +108,8 @@ export default function StaffProfilePage({ user }) {
         <h1 style={{ color: NAVY, marginTop: 0, marginBottom: 8 }}>Staff Profile</h1>
         <p style={{ color: "#666", marginTop: 0, marginBottom: 24 }}>Manage your staff account details and password.</p>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 24 }}>
-          <form onSubmit={handleProfileSave} style={{ background: "white", borderRadius: 12, boxShadow: "0 4px 24px rgba(0,0,0,0.06)", padding: 20 }}>
+        <div style={{ display: "grid", gap: 24 }}>
+          <form onSubmit={handleProfileSave} style={{ background: "white", borderRadius: 12, boxShadow: "0 4px 24px rgba(0,0,0,0.06)", padding: 20, maxWidth: 640 }}>
             <h3 style={{ color: NAVY, marginTop: 0 }}>Account Details</h3>
             <label style={{ display: "block", fontWeight: 700, marginBottom: 6 }}>Name</label>
             <input value={form.parentName} onChange={(event) => setForm((current) => ({ ...current, parentName: event.target.value }))} style={{ width: "100%", marginBottom: 14, padding: "10px 12px", border: "1px solid #ccc", borderRadius: 8 }} />
@@ -122,8 +122,9 @@ export default function StaffProfilePage({ user }) {
             </button>
           </form>
 
-          <form onSubmit={handlePasswordSave} style={{ background: "white", borderRadius: 12, boxShadow: "0 4px 24px rgba(0,0,0,0.06)", padding: 20 }}>
+          <form onSubmit={handlePasswordSave} style={{ background: "white", borderRadius: 12, boxShadow: "0 4px 24px rgba(0,0,0,0.06)", padding: 20, maxWidth: 640 }}>
             <h3 style={{ color: NAVY, marginTop: 0 }}>Change Password</h3>
+            <p style={{ color: "#666", marginTop: 0, marginBottom: 16, fontSize: 13 }}>Security settings are kept last to prevent accidental edits.</p>
             <label style={{ display: "block", fontWeight: 700, marginBottom: 6 }}>Current Password</label>
             <input type="password" value={passwordForm.currentPassword} onChange={(event) => setPasswordForm((current) => ({ ...current, currentPassword: event.target.value }))} style={{ width: "100%", marginBottom: 14, padding: "10px 12px", border: "1px solid #ccc", borderRadius: 8 }} />
             <label style={{ display: "block", fontWeight: 700, marginBottom: 6 }}>New Password</label>

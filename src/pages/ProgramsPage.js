@@ -33,9 +33,12 @@ export default function ProgramsPage({ setPage }) {
 
   return (
     <div style={{ paddingTop: 70 }}>
-      <div style={{ background: `linear-gradient(135deg, ${NAVY}, #1a3168)`, padding: "80px 24px", textAlign: "center" }}>
-        <h1 style={{ color: "white", fontFamily: "'Playfair Display', Georgia, serif", fontSize: "clamp(32px, 5vw, 60px)", fontWeight: 900, margin: "0 0 16px" }}>Training Programmes</h1>
-        <p style={{ color: "rgba(255,255,255,0.7)", fontSize: 18, maxWidth: 560, margin: "0 auto" }}>Structured pathways from first kick to elite performance.</p>
+      <div style={{ position: "relative", background: "url('/hero.jpg') center/cover no-repeat", padding: "80px 24px", textAlign: "center", overflow: "hidden" }}>
+        <div style={{ position: "absolute", inset: 0, background: "linear-gradient(135deg, rgba(13,27,62,0.9), rgba(26,49,104,0.78))" }} />
+        <div style={{ position: "relative", zIndex: 1 }}>
+          <h1 style={{ color: "white", fontFamily: "'Playfair Display', Georgia, serif", fontSize: "clamp(32px, 5vw, 60px)", fontWeight: 900, margin: "0 0 16px" }}>Training Programmes</h1>
+          <p style={{ color: "rgba(255,255,255,0.7)", fontSize: 18, maxWidth: 560, margin: "0 auto" }}>Structured pathways from first kick to elite performance.</p>
+        </div>
       </div>
 
       <div style={{ maxWidth: 1200, margin: "0 auto", padding: "80px 24px" }}>

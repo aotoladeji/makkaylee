@@ -1,6 +1,5 @@
 import { useState } from "react";
 import Input from "../components/common/Input";
-import Logo from "../components/common/Logo";
 import { API } from "../constants/api";
 import { BRAND } from "../constants/brand";
 import { ASH, NAVY } from "../constants/theme";
@@ -116,14 +115,24 @@ export default function RegisterPage({ user, setPage }) {
 
   return (
     <div style={{ paddingTop: 70, background: ASH, minHeight: "100vh" }}>
-      <div style={{ background: `linear-gradient(135deg, ${NAVY}, #1a3168)`, padding: "60px 24px", textAlign: "center" }}>
-        <Logo size={52} />
-        <h1 style={{ color: "white", fontFamily: "'Playfair Display', Georgia, serif", fontSize: "clamp(28px, 4vw, 48px)", fontWeight: 900, margin: "16px 0 8px" }}>
-          {isAddingChild ? "Add Another Child" : "Join the Academy"}
-        </h1>
-        <p style={{ color: "rgba(255,255,255,0.7)", fontSize: 16 }}>
-          {isAddingChild ? "Add a new child profile under your existing parent account" : "Complete the form below to begin your child&apos;s football journey"}
-        </p>
+      <div
+        style={{
+          position: "relative",
+          padding: "60px 24px",
+          textAlign: "center",
+          background: "url('/hero.jpg') center/cover no-repeat",
+          overflow: "hidden",
+        }}
+      >
+        <div style={{ position: "absolute", inset: 0, background: `linear-gradient(135deg, rgba(13,27,62,0.88), rgba(26,49,104,0.82))` }} />
+        <div style={{ position: "relative", zIndex: 1 }}>
+          <h1 style={{ color: "white", fontFamily: "'Playfair Display', Georgia, serif", fontSize: "clamp(28px, 4vw, 48px)", fontWeight: 900, margin: "16px 0 8px" }}>
+            {isAddingChild ? "Add Another Child" : "Join the Academy"}
+          </h1>
+          <p style={{ color: "rgba(255,255,255,0.7)", fontSize: 16 }}>
+            {isAddingChild ? "Add a new child profile under your existing parent account" : "Complete the form below to begin your child&apos;s football journey"}
+          </p>
+        </div>
       </div>
 
       <div style={{ maxWidth: 860, margin: "0 auto", padding: "60px 24px" }}>

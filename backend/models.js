@@ -25,6 +25,7 @@ const Registration = sequelize.define('Registration', {
   consent: { type: DataTypes.BOOLEAN, defaultValue: false },
   status: { type: DataTypes.STRING, defaultValue: 'Pending Payment' },
   badges: { type: DataTypes.JSON, defaultValue: [] },
+  passportUrl: { type: DataTypes.STRING, defaultValue: null },
 });
 
 // BillingInfo model

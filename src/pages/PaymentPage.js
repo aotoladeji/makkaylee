@@ -103,13 +103,16 @@ export default function PaymentPage({ user, setPage }) {
 
   return (
     <div style={{ paddingTop: 70, background: ASH, minHeight: "100vh" }}>
-      <div style={{ background: `linear-gradient(135deg, ${NAVY}, #1a3168)`, padding: "60px 24px", textAlign: "center" }}>
-        <h1 style={{ color: "white", fontFamily: "'Playfair Display', Georgia, serif", fontSize: "clamp(28px, 4vw, 48px)", fontWeight: 900, margin: 0 }}>Payment Information</h1>
-        {billing?.playerName && (
-          <p style={{ color: "rgba(255,255,255,0.85)", fontSize: 16, marginTop: 10, fontWeight: 700 }}>
-            Child: {billing.playerName}
-          </p>
-        )}
+      <div style={{ position: "relative", background: "url('/hero.jpg') center/cover no-repeat", padding: "60px 24px", textAlign: "center", overflow: "hidden" }}>
+        <div style={{ position: "absolute", inset: 0, background: "linear-gradient(135deg, rgba(13,27,62,0.9), rgba(26,49,104,0.78))" }} />
+        <div style={{ position: "relative", zIndex: 1 }}>
+          <h1 style={{ color: "white", fontFamily: "'Playfair Display', Georgia, serif", fontSize: "clamp(28px, 4vw, 48px)", fontWeight: 900, margin: 0 }}>Payment Information</h1>
+          {billing?.playerName && (
+            <p style={{ color: "rgba(255,255,255,0.85)", fontSize: 16, marginTop: 10, fontWeight: 700 }}>
+              Child: {billing.playerName}
+            </p>
+          )}
+        </div>
       </div>
 
       <div style={{ maxWidth: 760, margin: "0 auto", padding: "60px 24px" }}>

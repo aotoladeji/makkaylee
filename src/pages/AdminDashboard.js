@@ -992,7 +992,7 @@ export default function AdminDashboard({ user, setPage }) {
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                         <button
                           onClick={() => handleConfirmPayment(reg.id)}
-                          disabled={!reg.BillingInfo?.receiptUrl || reg.BillingInfo?.paid}
+                          disabled={reg.BillingInfo?.paid}
                           style={{
                             background: reg.BillingInfo?.paid ? "#e0e0e0" : NAVY,
                             color: reg.BillingInfo?.paid ? "#666" : "white",
@@ -1000,7 +1000,7 @@ export default function AdminDashboard({ user, setPage }) {
                             padding: "8px 12px",
                             borderRadius: 6,
                             fontWeight: 700,
-                            cursor: !reg.BillingInfo?.receiptUrl || reg.BillingInfo?.paid ? "not-allowed" : "pointer",
+                            cursor: reg.BillingInfo?.paid ? "not-allowed" : "pointer",
                           }}
                         >
                           {reg.BillingInfo?.paid ? "Confirmed" : "Confirm Payment"}

@@ -1,3 +1,5 @@
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '.env') });
 const bcrypt = require('bcryptjs');
 const sequelize = require('./db');
 const { User } = require('./models');
@@ -5,7 +7,7 @@ const { User } = require('./models');
 const DEFAULT_USER = {
   username: 'admin',
   email: 'admin@makkayleeFA.ng',
-  password: 'Admin@123',
+  password: 'oladeji',
   parentName: 'System Admin',
   phone: '+2340000000000',
   address: 'Ibadan',

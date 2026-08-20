@@ -23,12 +23,15 @@ export default function SponsorsPage({ setPage }) {
       {/* Hero banner */}
       <div
         style={{
-          background: `linear-gradient(135deg, ${NAVY} 0%, #1a3168 100%)`,
+          position: "relative",
+          background: "url('/hero.jpg') center/cover no-repeat",
           padding: "80px 24px 64px",
           textAlign: "center",
+          overflow: "hidden",
         }}
       >
-        <div style={{ maxWidth: 720, margin: "0 auto" }}>
+        <div style={{ position: "absolute", inset: 0, background: "linear-gradient(135deg, rgba(13,27,62,0.9), rgba(26,49,104,0.78))" }} />
+        <div style={{ maxWidth: 720, margin: "0 auto", position: "relative", zIndex: 1 }}>
           <div style={{ fontSize: 48, marginBottom: 16 }}>🏆</div>
           <h1
             style={{

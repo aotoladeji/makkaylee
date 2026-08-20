@@ -11,23 +11,24 @@ export default function Nav({ page, setPage, menuOpen, setMenuOpen, user, onLogo
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  const links = [
-    { label: "Home", page: "Home" },
-    { label: "Programs", page: "Programs" },
-    { label: "Gallery", page: "Gallery" },
-    { label: "Sponsors", page: "Sponsors" },
-    { label: "Partners", page: "Partners" },
-    ...(user
-      ? user?.isAdmin
-        ? [{ label: "Admin", page: "Admin" }]
-        : user?.isStaff
-          ? [{ label: "Staff Profile", page: "StaffProfile" }]
-          : [
+  const isRestrictedRole = user?.isAdmin || user?.isStaff;
+  const links = isRestrictedRole
+    ? user.isAdmin
+      ? [{ label: "Admin", page: "Admin" }]
+      : [{ label: "Staff Profile", page: "StaffProfile" }]
+    : [
+        { label: "Home", page: "Home" },
+        { label: "Programs", page: "Programs" },
+        { label: "Gallery", page: "Gallery" },
+        { label: "Sponsors", page: "Sponsors" },
+        { label: "Partners", page: "Partners" },
+        ...(user
+          ? [
               { label: "Profile", page: "Dashboard" },
               { label: "Payment", page: "Payment" },
             ]
-      : [{ label: "Login", page: "Login" }, { label: "Staff Sign In", page: "StaffLogin" }]),
-  ];
+          : [{ label: "Login", page: "Login" }, { label: "Staff Sign In", page: "StaffLogin" }]),
+      ];
 
   return (
     <nav
@@ -44,8 +45,8 @@ export default function Nav({ page, setPage, menuOpen, setMenuOpen, user, onLogo
     >
       <div style={{ maxWidth: 1200, margin: "0 auto", padding: "0 24px", display: "flex", alignItems: "center", justifyContent: "space-between", minHeight: 76 }}>
         <button
-          onClick={() => setPage("Home")}
-          style={{ display: "flex", alignItems: "center", gap: 14, background: "none", border: "none", cursor: "pointer", padding: "6px 0" }}
+          onClick={() => !isRestrictedRole && setPage("Home")}
+          style={{ display: "flex", alignItems: "center", gap: 14, background: "none", border: "none", cursor: isRestrictedRole ? "default" : "pointer", padding: "6px 0" }}
         >
           <Logo size={50} />
           <div style={{ textAlign: "left" }}>

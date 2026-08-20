@@ -42,8 +42,9 @@ export default function GalleryPage({ setPage }) {
 
   return (
     <div style={{ paddingTop: 70, background: ASH, minHeight: "100vh" }}>
-      <div style={{ background: "linear-gradient(135deg, " + NAVY + ", #1a3168)", padding: "48px 24px" }}>
-        <div style={{ maxWidth: 1100, margin: "0 auto" }}>
+      <div style={{ position: "relative", background: "url('/hero.jpg') center/cover no-repeat", padding: "48px 24px", overflow: "hidden" }}>
+        <div style={{ position: "absolute", inset: 0, background: "linear-gradient(135deg, rgba(13,27,62,0.9), rgba(26,49,104,0.78))" }} />
+        <div style={{ maxWidth: 1100, margin: "0 auto", position: "relative", zIndex: 1 }}>
           <p style={{ color: "rgba(255,255,255,0.72)", fontWeight: 700, letterSpacing: 1.5, textTransform: "uppercase", margin: "0 0 8px", fontSize: 12 }}>
             Match Moments and Training Highlights
           </p>

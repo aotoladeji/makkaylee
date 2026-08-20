@@ -137,13 +137,18 @@ export default function App() {
     navigate("/");
   };
 
+  const restrictedRolePath = user?.isAdmin ? "/admin" : user?.isStaff ? "/staff-profile" : null;
+
   return (
     <>
       <GlobalStyles />
       <Nav page={page} setPage={setPage} menuOpen={menuOpen} setMenuOpen={setMenuOpen} user={user} onLogout={handleLogout} />
 
       <main>
-        <Routes>
+        {restrictedRolePath && location.pathname !== restrictedRolePath ? (
+          <Navigate to={restrictedRolePath} replace />
+        ) : (
+          <Routes>
           <Route path="/" element={<HomePage setPage={setPage} />} />
           <Route path="/programs" element={<ProgramsPage setPage={setPage} />} />
           <Route path="/gallery" element={<GalleryPage setPage={setPage} />} />
@@ -196,10 +201,11 @@ export default function App() {
           />
           <Route path="/home" element={<Navigate to="/" replace />} />
           <Route path="*" element={<NotFoundPage setPage={setPage} />} />
-        </Routes>
+          </Routes>
+        )}
       </main>
 
-      <Footer setPage={setPage} />
+      {!restrictedRolePath && <Footer setPage={setPage} />}
     </>
   );
 }

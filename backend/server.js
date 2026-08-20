@@ -1,4 +1,7 @@
 // Basic Express server for MakkayLee
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '.env') });
+
 const express = require('express');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
@@ -10,9 +13,6 @@ const rateLimit = require('express-rate-limit');
 const sequelize = require('./db');
 const { Op } = require('sequelize');
 const { User, Registration, BillingInfo, TrainingEvent, GalleryMedia, PaymentConfig, Sponsor } = require('./models');
-
-const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '.env') });
 
 const SECRET = process.env.JWT_SECRET || 'your_super_secret_jwt_key_change_in_production';
 const JWT_EXPIRE = process.env.JWT_EXPIRE || '1d';
@@ -67,6 +67,19 @@ const receiptUpload = multer({
   },
 });
 
+const passportUpload = multer({
+  storage: uploadStorage,
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+      return;
+    }
+
+    cb(new Error('Only image files are allowed for passport photos'));
+  },
+});
+
 app.use(cors());
 app.use(express.json());
 app.use('/uploads', express.static(uploadsDir));
@@ -80,7 +93,7 @@ const limiter = rateLimit({
 
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 5, // Stricter limit for login attempts
+  max: 50, // Stricter limit for login attempts
   message: 'Too many login attempts, please try again later.'
 });
 
@@ -96,6 +109,8 @@ app.post('/api/register', async (req, res) => {
       username, password, email, parentName, phone, address,
       playerName, age, gender, program, medical, consent
     } = req.body;
+    const existingUser = await User.findOne({ where: { username: { [Op.iLike]: username } } });
+    if (existingUser) return res.status(400).json({ error: 'Username is already taken' });
     const hash = await bcrypt.hash(password, 10);
     // Create parent user
     const user = await User.create({ username, password: hash, email, parentName, phone, address });
@@ -194,7 +209,7 @@ app.post('/api/children', auth, async (req, res) => {
 app.post('/api/login', async (req, res) => {
   try {
     const { username, password } = req.body;
-    const user = await User.findOne({ where: { username } });
+    const user = await User.findOne({ where: { username: { [Op.iLike]: username } } });
     if (!user) return res.status(401).json({ error: 'Invalid credentials' });
     const match = await bcrypt.compare(password, user.password);
     if (!match) return res.status(401).json({ error: 'Invalid credentials' });
@@ -209,7 +224,7 @@ app.post('/api/login', async (req, res) => {
 app.post('/api/staff/login', async (req, res) => {
   try {
     const { username, password } = req.body;
-    const user = await User.findOne({ where: { username } });
+    const user = await User.findOne({ where: { username: { [Op.iLike]: username } } });
     if (!user || !user.isStaff) return res.status(401).json({ error: 'Invalid staff credentials' });
 
     const match = await bcrypt.compare(password, user.password);
@@ -608,6 +623,99 @@ app.get('/api/admin/registrations', auth, async (req, res) => {
   }
 });
 
+// Admin: update a player's registration details
+app.put('/api/admin/registrations/:id', auth, async (req, res) => {
+  if (!req.user.isAdmin) return res.status(403).json({ error: 'Forbidden' });
+
+  try {
+    const registration = await Registration.findByPk(req.params.id);
+    if (!registration) return res.status(404).json({ error: 'Registration not found' });
+
+    const { playerName, age, gender, program, medical } = req.body;
+    const numericAge = Number(age);
+    if (!playerName?.trim() || Number.isNaN(numericAge) || numericAge < 4 || numericAge > 15 || !gender || !program) {
+      return res.status(400).json({ error: 'Player name, age (4-15), gender, and program are required' });
+    }
+
+    await registration.update({
+      playerName: playerName.trim(),
+      age: numericAge,
+      gender,
+      program,
+      medical: medical || '',
+    });
+
+    res.json({ message: 'Player information updated', data: registration });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Admin: upload or replace a player's passport photograph
+app.post('/api/admin/registrations/:id/passport', auth, passportUpload.single('passport'), async (req, res) => {
+  if (!req.user.isAdmin) return res.status(403).json({ error: 'Forbidden' });
+
+  try {
+    if (!req.file) return res.status(400).json({ error: 'Passport image is required' });
+
+    const registration = await Registration.findByPk(req.params.id);
+    if (!registration) return res.status(404).json({ error: 'Registration not found' });
+
+    if (registration.passportUrl) {
+      const oldPath = path.join(__dirname, registration.passportUrl.replace('/uploads/', 'uploads/'));
+      if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+    }
+
+    const passportUrl = `/uploads/${req.file.filename}`;
+    await registration.update({ passportUrl });
+    res.json({ message: 'Passport photo uploaded', data: { id: registration.id, passportUrl } });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Admin: upload or replace a payment receipt for a player
+app.post('/api/admin/registrations/:id/receipt', auth, receiptUpload.single('receipt'), async (req, res) => {
+  if (!req.user.isAdmin) return res.status(403).json({ error: 'Forbidden' });
+
+  try {
+    if (!req.file) return res.status(400).json({ error: 'Receipt file is required' });
+
+    const registration = await Registration.findByPk(req.params.id);
+    if (!registration) return res.status(404).json({ error: 'Registration not found' });
+
+    const billing = await BillingInfo.findOne({ where: { registrationId: registration.id } });
+    if (!billing) return res.status(404).json({ error: 'Billing record not found' });
+
+    if (billing.receiptUrl) {
+      const oldPath = path.join(__dirname, billing.receiptUrl.replace('/uploads/', 'uploads/'));
+      if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+    }
+
+    const receiptUrl = `/uploads/${req.file.filename}`;
+    await billing.update({
+      receiptUrl,
+      receiptMimeType: req.file.mimetype,
+      receiptUploadedAt: new Date(),
+      paid: false,
+      paymentConfirmedAt: null,
+    });
+    await registration.update({ status: 'Receipt Submitted' });
+
+    res.json({
+      message: 'Payment receipt uploaded',
+      data: {
+        registrationId: registration.id,
+        receiptUrl,
+        receiptMimeType: req.file.mimetype,
+        receiptUploadedAt: billing.receiptUploadedAt,
+      },
+    });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 // Admin: adjust global payment amount and due date
 app.put('/api/admin/payment-config', auth, async (req, res) => {
   if (!req.user.isAdmin) return res.status(403).json({ error: 'Forbidden' });
@@ -797,6 +905,58 @@ app.post('/api/admin/staff', auth, async (req, res) => {
         parentName: user.parentName,
         phone: user.phone,
         isStaff: user.isStaff,
+      },
+    });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Admin: edit an existing staff account
+app.put('/api/admin/staff/:id', auth, async (req, res) => {
+  if (!req.user.isAdmin) return res.status(403).json({ error: 'Forbidden' });
+
+  try {
+    const staff = await User.findByPk(req.params.id);
+    if (!staff || !staff.isStaff || staff.isAdmin) return res.status(404).json({ error: 'Staff account not found' });
+
+    const { username, email, parentName, phone, password } = req.body;
+    if (!username?.trim() || !email?.trim() || !parentName?.trim()) {
+      return res.status(400).json({ error: 'Username, email, and full name are required' });
+    }
+    if (password && password.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    }
+
+    const existing = await User.findOne({
+      where: {
+        id: { [Op.ne]: staff.id },
+        [Op.or]: [
+          { username: { [Op.iLike]: username.trim() } },
+          { email: { [Op.iLike]: email.trim() } },
+        ],
+      },
+    });
+    if (existing) return res.status(400).json({ error: 'Username or email already exists' });
+
+    const updates = {
+      username: username.trim(),
+      email: email.trim(),
+      parentName: parentName.trim(),
+      phone: phone?.trim() || null,
+    };
+    if (password) updates.password = await bcrypt.hash(password, 10);
+
+    await staff.update(updates);
+    res.json({
+      message: 'Staff account updated',
+      data: {
+        id: staff.id,
+        username: staff.username,
+        email: staff.email,
+        parentName: staff.parentName,
+        phone: staff.phone,
+        isStaff: staff.isStaff,
       },
     });
   } catch (err) {

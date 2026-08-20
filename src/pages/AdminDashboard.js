@@ -57,6 +57,15 @@ export default function AdminDashboard({ user, setPage }) {
   const [badgeSaving, setBadgeSaving] = useState(false);
   const [badgeMessage, setBadgeMessage] = useState("");
   const [badgeToast, setBadgeToast] = useState("");
+  const [playerEditId, setPlayerEditId] = useState(null);
+  const [playerForm, setPlayerForm] = useState({ playerName: "", age: "", gender: "", program: "", medical: "" });
+  const [playerSaving, setPlayerSaving] = useState(false);
+  const [playerActionMessage, setPlayerActionMessage] = useState("");
+  const [playerActionError, setPlayerActionError] = useState("");
+  const [playerUploadId, setPlayerUploadId] = useState(null);
+  const [passportFile, setPassportFile] = useState(null);
+  const [receiptFile, setReceiptFile] = useState(null);
+  const [documentSaving, setDocumentSaving] = useState(false);
 
   const [staffForm, setStaffForm] = useState({
     username: "",
@@ -68,6 +77,9 @@ export default function AdminDashboard({ user, setPage }) {
   const [staffMessage, setStaffMessage] = useState("");
   const [staffError, setStaffError] = useState("");
   const [staffSaving, setStaffSaving] = useState(false);
+  const [staffEditId, setStaffEditId] = useState(null);
+  const [staffEditForm, setStaffEditForm] = useState({ username: "", email: "", parentName: "", phone: "", password: "" });
+  const [staffEditSaving, setStaffEditSaving] = useState(false);
 
   const [sponsorList, setSponsorList] = useState([]);
   const [sponsorForm, setSponsorForm] = useState({ name: "", type: "sponsor", description: "", websiteUrl: "", logo: null });
@@ -449,6 +461,66 @@ export default function AdminDashboard({ user, setPage }) {
     }
   };
 
+  const openPlayerEditor = (registration) => {
+    setPlayerEditId(registration.id);
+    setPlayerForm({ playerName: registration.playerName || "", age: String(registration.age || ""), gender: registration.gender || "", program: registration.program || "", medical: registration.medical || "" });
+    setPlayerActionError("");
+    setPlayerActionMessage("");
+  };
+
+  const handlePlayerSave = async (event) => {
+    event.preventDefault();
+    setPlayerActionError("");
+    setPlayerActionMessage("");
+    setPlayerSaving(true);
+    try {
+      const response = await fetch(`${API}/admin/registrations/${playerEditId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${user.token}` },
+        body: JSON.stringify(playerForm),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Failed to update player information");
+      setRegistrations((current) => current.map((registration) => (registration.id === playerEditId ? { ...registration, ...data.data } : registration)));
+      setPlayerActionMessage("Player information updated.");
+      setPlayerEditId(null);
+    } catch (submitError) {
+      setPlayerActionError(submitError.message);
+    } finally {
+      setPlayerSaving(false);
+    }
+  };
+
+  const handlePlayerDocumentUpload = async (registrationId, type) => {
+    const file = type === "passport" ? passportFile : receiptFile;
+    if (!file) {
+      setPlayerActionError(`Choose a ${type === "passport" ? "passport image" : "receipt file"} first.`);
+      return;
+    }
+    setPlayerActionError("");
+    setPlayerActionMessage("");
+    setDocumentSaving(true);
+    try {
+      const body = new FormData();
+      body.append(type, file);
+      const response = await fetch(`${API}/admin/registrations/${registrationId}/${type}`, { method: "POST", headers: { Authorization: `Bearer ${user.token}` }, body });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || `Failed to upload ${type}`);
+      setRegistrations((current) => current.map((registration) => {
+        if (registration.id !== registrationId) return registration;
+        if (type === "passport") return { ...registration, passportUrl: data.data.passportUrl };
+        return { ...registration, status: "Receipt Submitted", BillingInfo: { ...registration.BillingInfo, receiptUrl: data.data.receiptUrl, receiptMimeType: data.data.receiptMimeType, receiptUploadedAt: data.data.receiptUploadedAt, paid: false, paymentConfirmedAt: null } };
+      }));
+      if (type === "passport") setPassportFile(null);
+      else setReceiptFile(null);
+      setPlayerActionMessage(`${type === "passport" ? "Passport photo" : "Payment receipt"} uploaded.`);
+    } catch (uploadError) {
+      setPlayerActionError(uploadError.message);
+    } finally {
+      setDocumentSaving(false);
+    }
+  };
+
   const handleAssignBadges = async () => {
     if (!badgeEditId) {
       setBadgeMessage("No player selected for badge assignment.");
@@ -653,6 +725,36 @@ export default function AdminDashboard({ user, setPage }) {
       setStaffError(submitError.message);
     } finally {
       setStaffSaving(false);
+    }
+  };
+
+  const openStaffEditor = (staffUser) => {
+    setStaffEditId(staffUser.id);
+    setStaffEditForm({ username: staffUser.username || "", email: staffUser.email || "", parentName: staffUser.parentName || "", phone: staffUser.phone || "", password: "" });
+    setStaffError("");
+    setStaffMessage("");
+  };
+
+  const handleStaffEdit = async (event) => {
+    event.preventDefault();
+    setStaffError("");
+    setStaffMessage("");
+    setStaffEditSaving(true);
+    try {
+      const response = await fetch(`${API}/admin/staff/${staffEditId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${user.token}` },
+        body: JSON.stringify(staffEditForm),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Failed to update staff account");
+      setUsers((current) => current.map((staffUser) => (staffUser.id === staffEditId ? { ...staffUser, ...data.data } : staffUser)));
+      setStaffEditId(null);
+      setStaffMessage("Staff account updated successfully.");
+    } catch (submitError) {
+      setStaffError(submitError.message);
+    } finally {
+      setStaffEditSaving(false);
     }
   };
 
@@ -1053,27 +1155,36 @@ export default function AdminDashboard({ user, setPage }) {
                           )}
                         </div>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setBadgeEditId(badgeEditId === reg.id ? null : reg.id);
-                          setBadgeSelections(reg.badges || []);
-                          setBadgeMessage("");
-                        }}
-                        style={{
-                          background: badgeEditId === reg.id ? "#e0e0e0" : "#e3f2fd",
-                          color: badgeEditId === reg.id ? "#333" : "#1565c0",
-                          border: `1px solid ${badgeEditId === reg.id ? "#ccc" : "#90caf9"}`,
-                          borderRadius: 8,
-                          padding: "8px 16px",
-                          fontWeight: 700,
-                          cursor: "pointer",
-                          fontSize: 13,
-                        }}
-                      >
-                        {badgeEditId === reg.id ? "Cancel" : "🏅 Assign Badges"}
-                      </button>
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        <button type="button" onClick={() => openPlayerEditor(reg)} style={{ background: NAVY, color: "white", border: "none", borderRadius: 8, padding: "8px 16px", fontWeight: 700, cursor: "pointer", fontSize: 13 }}>Edit Player</button>
+                        <button type="button" onClick={() => { setBadgeEditId(badgeEditId === reg.id ? null : reg.id); setBadgeSelections(reg.badges || []); setBadgeMessage(""); }} style={{ background: badgeEditId === reg.id ? "#e0e0e0" : "#e3f2fd", color: badgeEditId === reg.id ? "#333" : "#1565c0", border: `1px solid ${badgeEditId === reg.id ? "#ccc" : "#90caf9"}`, borderRadius: 8, padding: "8px 16px", fontWeight: 700, cursor: "pointer", fontSize: 13 }}>{badgeEditId === reg.id ? "Cancel" : "Assign Badges"}</button>
+                      </div>
                     </div>
+
+                    {reg.passportUrl && <a href={toMediaUrl(reg.passportUrl)} target="_blank" rel="noreferrer" style={{ display: "inline-flex", marginBottom: 12, color: NAVY, fontSize: 13, fontWeight: 700 }}>View passport photo</a>}
+
+                    {playerEditId === reg.id && (
+                      <form onSubmit={handlePlayerSave} style={{ marginBottom: 16, padding: 16, background: "#f9fafb", border: "1px solid #dce3ea", borderRadius: 10 }}>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
+                          <input value={playerForm.playerName} onChange={(event) => setPlayerForm((current) => ({ ...current, playerName: event.target.value }))} placeholder="Player name" required style={{ padding: "9px 10px", border: "1px solid #ccc", borderRadius: 6 }} />
+                          <input type="number" min="4" max="15" value={playerForm.age} onChange={(event) => setPlayerForm((current) => ({ ...current, age: event.target.value }))} placeholder="Age" required style={{ padding: "9px 10px", border: "1px solid #ccc", borderRadius: 6 }} />
+                          <select value={playerForm.gender} onChange={(event) => setPlayerForm((current) => ({ ...current, gender: event.target.value }))} required style={{ padding: "9px 10px", border: "1px solid #ccc", borderRadius: 6 }}><option value="">Gender</option><option value="Male">Male</option><option value="Female">Female</option><option value="Other">Other</option></select>
+                          <select value={playerForm.program} onChange={(event) => setPlayerForm((current) => ({ ...current, program: event.target.value }))} required style={{ padding: "9px 10px", border: "1px solid #ccc", borderRadius: 6 }}><option value="">Programme</option><option value="Junior Stars (4-8)">Junior Stars (4-8)</option><option value="Intermediate (9-12)">Intermediate (9-12)</option><option value="Elite (13-15)">Elite (13-15)</option></select>
+                        </div>
+                        <textarea value={playerForm.medical} onChange={(event) => setPlayerForm((current) => ({ ...current, medical: event.target.value }))} placeholder="Medical information" style={{ width: "100%", minHeight: 72, boxSizing: "border-box", marginTop: 12, padding: "9px 10px", border: "1px solid #ccc", borderRadius: 6 }} />
+                        <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}><button type="submit" disabled={playerSaving} style={{ background: NAVY, color: "white", border: "none", padding: "9px 14px", borderRadius: 6, fontWeight: 700, cursor: "pointer" }}>{playerSaving ? "Saving..." : "Save Player"}</button><button type="button" onClick={() => setPlayerEditId(null)} style={{ background: "#e0e0e0", color: "#333", border: "none", padding: "9px 14px", borderRadius: 6, fontWeight: 700, cursor: "pointer" }}>Cancel</button></div>
+                      </form>
+                    )}
+
+                    {playerUploadId === reg.id ? (
+                      <div style={{ marginBottom: 16, padding: 16, background: "#f9fafb", border: "1px solid #dce3ea", borderRadius: 10 }}>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))", gap: 16 }}><label style={{ color: NAVY, fontSize: 13, fontWeight: 700 }}>Passport photo<input type="file" accept="image/*" onChange={(event) => setPassportFile(event.target.files?.[0] || null)} style={{ display: "block", marginTop: 6 }} /></label><label style={{ color: NAVY, fontSize: 13, fontWeight: 700 }}>Payment receipt<input type="file" accept="image/*,application/pdf" onChange={(event) => setReceiptFile(event.target.files?.[0] || null)} style={{ display: "block", marginTop: 6 }} /></label></div>
+                        <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}><button type="button" disabled={documentSaving} onClick={() => handlePlayerDocumentUpload(reg.id, "passport")} style={{ background: NAVY, color: "white", border: "none", padding: "9px 14px", borderRadius: 6, fontWeight: 700, cursor: "pointer" }}>{documentSaving ? "Uploading..." : "Upload Passport"}</button><button type="button" disabled={documentSaving} onClick={() => handlePlayerDocumentUpload(reg.id, "receipt")} style={{ background: "#455a64", color: "white", border: "none", padding: "9px 14px", borderRadius: 6, fontWeight: 700, cursor: "pointer" }}>{documentSaving ? "Uploading..." : "Upload Receipt"}</button><button type="button" onClick={() => { setPlayerUploadId(null); setPassportFile(null); setReceiptFile(null); }} style={{ background: "#e0e0e0", color: "#333", border: "none", padding: "9px 14px", borderRadius: 6, fontWeight: 700, cursor: "pointer" }}>Close</button></div>
+                      </div>
+                    ) : <button type="button" onClick={() => { setPlayerUploadId(reg.id); setPlayerActionError(""); setPlayerActionMessage(""); }} style={{ marginBottom: 16, background: "#e8f5e9", color: "#2e7d32", border: "1px solid #a5d6a7", borderRadius: 6, padding: "8px 12px", fontWeight: 700, cursor: "pointer", fontSize: 13 }}>Manage Documents</button>}
+
+                    {playerActionError && <div style={{ color: "red", fontSize: 13, marginBottom: 12 }}>{playerActionError}</div>}
+                    {playerActionMessage && <div style={{ color: "green", fontSize: 13, marginBottom: 12 }}>{playerActionMessage}</div>}
 
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                       {(reg.badges || []).length === 0 ? (
@@ -1350,6 +1461,7 @@ export default function AdminDashboard({ user, setPage }) {
                     <th style={{ textAlign: "left", padding: 12, color: NAVY, fontWeight: 700 }}>Username</th>
                     <th style={{ textAlign: "left", padding: 12, color: NAVY, fontWeight: 700 }}>Email</th>
                     <th style={{ textAlign: "left", padding: 12, color: NAVY, fontWeight: 700 }}>Phone</th>
+                    <th style={{ textAlign: "left", padding: 12, color: NAVY, fontWeight: 700 }}>Action</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1359,12 +1471,27 @@ export default function AdminDashboard({ user, setPage }) {
                       <td style={{ padding: 12, color: "#333" }}>{staffUser.username}</td>
                       <td style={{ padding: 12, color: "#333" }}>{staffUser.email}</td>
                       <td style={{ padding: 12, color: "#333" }}>{staffUser.phone || "-"}</td>
+                      <td style={{ padding: 12 }}><button type="button" onClick={() => openStaffEditor(staffUser)} style={{ background: NAVY, color: "white", border: "none", borderRadius: 6, padding: "8px 12px", fontWeight: 700, cursor: "pointer" }}>Edit</button></td>
                     </tr>
                   ))}
                 </tbody>
               </table>
               {!staffUsers.length && <div style={{ color: "#777", marginTop: 12 }}>No staff accounts found yet.</div>}
             </div>
+
+            {staffEditId && (
+              <div style={{ background: "white", borderRadius: 16, padding: 24, boxShadow: "0 4px 24px rgba(0,0,0,0.06)" }}>
+                <h3 style={{ color: NAVY, marginTop: 0, marginBottom: 16 }}>Edit Staff Account</h3>
+                <form onSubmit={handleStaffEdit} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>
+                  <input value={staffEditForm.username} onChange={(event) => setStaffEditForm((current) => ({ ...current, username: event.target.value }))} placeholder="Username" required style={{ padding: "8px 10px", borderRadius: 6, border: "1px solid #ccc" }} />
+                  <input type="email" value={staffEditForm.email} onChange={(event) => setStaffEditForm((current) => ({ ...current, email: event.target.value }))} placeholder="Email" required style={{ padding: "8px 10px", borderRadius: 6, border: "1px solid #ccc" }} />
+                  <input value={staffEditForm.parentName} onChange={(event) => setStaffEditForm((current) => ({ ...current, parentName: event.target.value }))} placeholder="Full name" required style={{ padding: "8px 10px", borderRadius: 6, border: "1px solid #ccc" }} />
+                  <input value={staffEditForm.phone} onChange={(event) => setStaffEditForm((current) => ({ ...current, phone: event.target.value }))} placeholder="Phone" style={{ padding: "8px 10px", borderRadius: 6, border: "1px solid #ccc" }} />
+                  <input type="password" value={staffEditForm.password} onChange={(event) => setStaffEditForm((current) => ({ ...current, password: event.target.value }))} placeholder="New password (optional)" style={{ padding: "8px 10px", borderRadius: 6, border: "1px solid #ccc" }} />
+                  <div style={{ display: "flex", gap: 8 }}><button type="submit" disabled={staffEditSaving} style={{ background: NAVY, color: "white", border: "none", padding: "10px 14px", borderRadius: 6, fontWeight: 700, cursor: "pointer" }}>{staffEditSaving ? "Saving..." : "Save Staff"}</button><button type="button" onClick={() => setStaffEditId(null)} style={{ background: "#e0e0e0", color: "#333", border: "none", padding: "10px 14px", borderRadius: 6, fontWeight: 700, cursor: "pointer" }}>Cancel</button></div>
+                </form>
+              </div>
+            )}
           </div>
         )}
 

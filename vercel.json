@@ -1,5 +1,12 @@
 {
   "version": 2,
+  "functions": {
+    "api/index.js": {
+      "includeFiles": [
+        "backend/database/makkaylee.sqlite"
+      ]
+    }
+  },
   "builds": [
     {
       "src": "package.json",
@@ -10,12 +17,7 @@
     },
     {
       "src": "api/index.js",
-      "use": "@vercel/node",
-      "config": {
-        "includeFiles": [
-          "backend/database/makkaylee.sqlite"
-        ]
-      }
+      "use": "@vercel/node"
     }
   ],
   "routes": [

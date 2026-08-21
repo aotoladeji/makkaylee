@@ -36,7 +36,7 @@ export default function LoginPage({ setUser, setPage }) {
       setPage(isAdmin ? "Admin" : isStaff ? "StaffProfile" : "Dashboard");
     } catch (submitError) {
       if (submitError instanceof TypeError) {
-        setError("Cannot reach the server. Make sure the backend is running on http://localhost:5000.");
+        setError("Cannot reach the server. Please try again shortly.");
         return;
       }
 

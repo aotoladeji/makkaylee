@@ -2,8 +2,9 @@
 const path = require('path');
 const { Sequelize } = require('sequelize');
 
-const storage = process.env.SQLITE_STORAGE
-  ? path.resolve(process.env.SQLITE_STORAGE)
+const configuredStorage = process.env.SQLITE_STORAGE;
+const storage = configuredStorage
+  ? (path.isAbsolute(configuredStorage) ? configuredStorage : path.join(__dirname, configuredStorage))
   : path.join(__dirname, 'database', 'makkaylee.sqlite');
 
 const sequelize = new Sequelize({

@@ -63,7 +63,7 @@ npm --prefix backend run sync
 npm --prefix backend run seed:default-user
 ```
 
-The resulting `backend/database/makkaylee.sqlite` file is ready for Turso. After logging in with the Turso CLI, import it with:
+The sync command configures the generated `backend/database/makkaylee.sqlite` file with SQLite WAL journal mode, making it ready for Turso. After logging in with the Turso CLI, import it with:
 
 ```bash
 turso db create makkaylee --from-file ./backend/database/makkaylee.sqlite
@@ -93,7 +93,25 @@ npm run build
 
 ## Deployment
 
-This app runs with the React frontend and the Express backend.
+Vercel serves the React frontend and routes same-origin `/api/*` requests to the Express function defined in `api/index.js`. Do not set `REACT_APP_API_URL` in Vercel; the production build uses `/api`, so requests remain on your deployed domain rather than redirecting to localhost.
+
+Set these environment variables in **Vercel Project Settings > Environment Variables** for Production, Preview, and Development as appropriate:
+
+```env
+JWT_SECRET=replace-with-a-long-random-secret
+JWT_EXPIRE=1d
+TURSO_DATABASE_URL=libsql://your-database-your-organization.turso.io
+TURSO_AUTH_TOKEN=your-turso-auth-token
+```
+
+Retrieve the Turso values with:
+
+```bash
+turso db show makkaylee --url
+turso db tokens create makkaylee
+```
+
+The current backend uses Sequelize with a local SQLite file, which cannot connect directly to Turso's remote `libsql://` endpoint. Before deploying write-capable API routes to Vercel, migrate the backend data access layer to `@tursodatabase/serverless` or `@libsql/client` and read `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN`. Until that migration is complete, Vercel Functions would use temporary local storage and changes would not persist.
 
 - Frontend: `npm run build`
 - Backend: `npm --prefix backend start`

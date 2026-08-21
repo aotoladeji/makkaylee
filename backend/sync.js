@@ -9,6 +9,7 @@ async function syncDb() {
     const storage = sequelize.options.storage;
     fs.mkdirSync(path.dirname(storage), { recursive: true });
     await sequelize.authenticate();
+    await sequelize.query('PRAGMA journal_mode = WAL');
     await sequelize.sync({ alter: true });
     console.log(`SQLite database synced: ${storage}`);
   } catch (err) {

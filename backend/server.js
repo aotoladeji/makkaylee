@@ -109,7 +109,7 @@ app.post('/api/register', async (req, res) => {
       username, password, email, parentName, phone, address,
       playerName, age, gender, program, medical, consent
     } = req.body;
-    const existingUser = await User.findOne({ where: { username: { [Op.iLike]: username } } });
+    const existingUser = await User.findOne({ where: { username } });
     if (existingUser) return res.status(400).json({ error: 'Username is already taken' });
     const hash = await bcrypt.hash(password, 10);
     // Create parent user
@@ -209,7 +209,7 @@ app.post('/api/children', auth, async (req, res) => {
 app.post('/api/login', async (req, res) => {
   try {
     const { username, password } = req.body;
-    const user = await User.findOne({ where: { username: { [Op.iLike]: username } } });
+    const user = await User.findOne({ where: { username } });
     if (!user) return res.status(401).json({ error: 'Invalid credentials' });
     const match = await bcrypt.compare(password, user.password);
     if (!match) return res.status(401).json({ error: 'Invalid credentials' });
@@ -224,7 +224,7 @@ app.post('/api/login', async (req, res) => {
 app.post('/api/staff/login', async (req, res) => {
   try {
     const { username, password } = req.body;
-    const user = await User.findOne({ where: { username: { [Op.iLike]: username } } });
+    const user = await User.findOne({ where: { username } });
     if (!user || !user.isStaff) return res.status(401).json({ error: 'Invalid staff credentials' });
 
     const match = await bcrypt.compare(password, user.password);
@@ -932,8 +932,8 @@ app.put('/api/admin/staff/:id', auth, async (req, res) => {
       where: {
         id: { [Op.ne]: staff.id },
         [Op.or]: [
-          { username: { [Op.iLike]: username.trim() } },
-          { email: { [Op.iLike]: email.trim() } },
+          { username: username.trim() },
+          { email: email.trim() },
         ],
       },
     });

@@ -2,7 +2,7 @@
   "version": 2,
   "functions": {
     "api/index.js": {
-      "includeFiles": "backend/database/makkaylee.sqlite"
+      "includeFiles": "{backend/database/makkaylee.sqlite,node_modules/sqlite3/**,backend/node_modules/sqlite3/**}"
     }
   },
   "buildCommand": "npm run build",

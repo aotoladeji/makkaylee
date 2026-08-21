@@ -2,6 +2,7 @@ let app;
 
 module.exports = (request, response) => {
 	try {
+		require('sqlite3');
 		app ||= require('../backend/server');
 		return app(request, response);
 	} catch (error) {

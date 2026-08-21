@@ -26,7 +26,9 @@ if (process.env.DB_SYNC === 'true') {
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-const uploadsDir = path.join(__dirname, 'uploads');
+const uploadsDir = process.env.VERCEL
+  ? path.join('/tmp', 'uploads')
+  : path.join(__dirname, 'uploads');
 
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });

@@ -93,7 +93,7 @@ npm run build
 
 ## Deployment
 
-Vercel serves the React frontend and routes same-origin `/api/*` requests to the Express function defined in `api/index.js`. Do not set `REACT_APP_API_URL` in Vercel; the production build uses `/api`, so requests remain on your deployed domain rather than redirecting to localhost.
+Vercel serves the React frontend and routes same-origin `/api/*` requests to the Express function defined in `api/index.js`. Production builds always use `/api`, so requests remain on your deployed domain rather than redirecting to localhost or calling an external Firebase Function. Remove any `REACT_APP_API_URL` value from Vercel before redeploying.
 
 Set these environment variables in **Vercel Project Settings > Environment Variables** for Production, Preview, and Development as appropriate:
 

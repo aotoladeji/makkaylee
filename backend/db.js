@@ -12,6 +12,7 @@ const storage = process.env.VERCEL
   : bundledStorage;
 
 if (process.env.VERCEL && !fs.existsSync(storage)) {
+  fs.mkdirSync(path.dirname(storage), { recursive: true });
   fs.copyFileSync(bundledStorage, storage);
 }
 

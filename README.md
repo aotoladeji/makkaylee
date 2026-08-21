@@ -104,6 +104,8 @@ TURSO_DATABASE_URL=libsql://your-database-your-organization.turso.io
 TURSO_AUTH_TOKEN=your-turso-auth-token
 ```
 
+`JWT_SECRET` is required by the current API. The Firebase variables are not used by this codebase. `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` are reserved for the upcoming Turso data-layer migration and are not read by the current Sequelize SQLite backend.
+
 Retrieve the Turso values with:
 
 ```bash

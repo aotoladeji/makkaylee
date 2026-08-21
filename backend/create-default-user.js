@@ -48,6 +48,8 @@ async function createDefaultUser() {
       console.log('Default admin user created.');
     }
 
+    await sequelize.query('PRAGMA wal_checkpoint(TRUNCATE)');
+
     console.log('Login credentials:');
     console.log(`username: ${DEFAULT_USER.username}`);
     console.log(`password: ${DEFAULT_USER.password}`);

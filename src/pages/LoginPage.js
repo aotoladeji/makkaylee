@@ -21,7 +21,9 @@ export default function LoginPage({ setUser, setPage }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form),
       });
-      const data = await response.json();
+      const contentType = response.headers.get("content-type") || "";
+      const rawBody = await response.text();
+      const data = contentType.includes("application/json") && rawBody ? JSON.parse(rawBody) : {};
       if (!response.ok) throw new Error(data.error || "Login failed");
 
       localStorage.setItem("token", data.token);

@@ -100,8 +100,14 @@ async function handleLogin(req, res) {
 
     jsonResponse(res, 200, { token });
   } catch (err) {
-    console.error('Login error:', err);
-    jsonResponse(res, 400, { error: err.message });
+    console.error('Login error:', err.message);
+    
+    // Check if it's a database connection error
+    if (err.message.includes('no such table') || err.message.includes('not connected')) {
+      return jsonResponse(res, 503, { error: 'Database not initialized. Check TURSO_CONNECTION_URL and TURSO_AUTH_TOKEN environment variables.' });
+    }
+    
+    jsonResponse(res, 400, { error: 'Login failed. Please try again.' });
   }
 }
 
@@ -138,8 +144,14 @@ async function handleStaffLogin(req, res) {
 
     jsonResponse(res, 200, { token });
   } catch (err) {
-    console.error('Staff login error:', err);
-    jsonResponse(res, 400, { error: err.message });
+    console.error('Staff login error:', err.message);
+    
+    // Check if it's a database connection error
+    if (err.message.includes('no such table') || err.message.includes('not connected')) {
+      return jsonResponse(res, 503, { error: 'Database not initialized. Check TURSO_CONNECTION_URL and TURSO_AUTH_TOKEN environment variables.' });
+    }
+    
+    jsonResponse(res, 400, { error: 'Login failed. Please try again.' });
   }
 }
 
@@ -232,6 +244,27 @@ async function handleGetPaymentConfig(req, res) {
     }
   } catch (err) {
     console.error('Get payment config error:', err);
+    jsonResponse(res, 400, { error: err.message });
+  }
+}
+
+async function handleDeleteGallery(req, res, user) {
+  if (!user.isAdmin) {
+    return jsonResponse(res, 403, { error: 'Forbidden' });
+  }
+
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  const id = url.pathname.split('/').pop();
+
+  if (!id) {
+    return jsonResponse(res, 400, { error: 'Gallery ID is required' });
+  }
+
+  try {
+    await run('DELETE FROM GalleryMedia WHERE id = ?', [id]);
+    jsonResponse(res, 200, { message: 'Gallery media deleted successfully' });
+  } catch (err) {
+    console.error('Delete gallery error:', err);
     jsonResponse(res, 400, { error: err.message });
   }
 }
@@ -449,6 +482,11 @@ async function handleRequest(req, res) {
     // POST /api/admin/gallery/upload
     if (pathname === '/api/admin/gallery/upload' && req.method === 'POST') {
       return handleUploadGallery(req, res, user);
+    }
+
+    // DELETE /api/admin/gallery/:id
+    if (pathname.match(/^\/api\/admin\/gallery\/\d+$/) && req.method === 'DELETE') {
+      return handleDeleteGallery(req, res, user);
     }
 
     // GET /api/admin/sponsors

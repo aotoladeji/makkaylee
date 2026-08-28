@@ -110,7 +110,7 @@ export function getPublicIdFromUrl(url) {
   return null;
 }
 
-export default {
+const cloudinaryService = {
   uploadToCloudinary,
   deleteFromCloudinary,
   getOptimizedUrl,
@@ -118,3 +118,5 @@ export default {
   CLOUDINARY_CLOUD_NAME,
   CLOUDINARY_UPLOAD_PRESET
 };
+
+export default cloudinaryService;

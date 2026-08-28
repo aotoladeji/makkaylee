@@ -272,9 +272,13 @@ async function handleDeleteGallery(req, res, user) {
 async function handleGetPublicGallery(req, res) {
   try {
     const rows = await query('SELECT * FROM GalleryMedia WHERE isPublished = 1 ORDER BY createdAt DESC');
+    console.log('✅ Fetched gallery items:', rows.length, 'items');
+    if (rows.length > 0) {
+      console.log('📸 First item:', rows[0]);
+    }
     jsonResponse(res, 200, { data: rows });
   } catch (err) {
-    console.error('Get gallery error:', err);
+    console.error('❌ Get gallery error:', err.message);
     jsonResponse(res, 200, { data: [] });
   }
 }
@@ -286,9 +290,10 @@ async function handleGetAdminGallery(req, res, user) {
 
   try {
     const rows = await query('SELECT * FROM GalleryMedia ORDER BY createdAt DESC');
+    console.log('✅ Admin fetched gallery items:', rows.length, 'items');
     jsonResponse(res, 200, { data: rows });
   } catch (err) {
-    console.error('Get admin gallery error:', err);
+    console.error('❌ Get admin gallery error:', err.message);
     jsonResponse(res, 200, { data: [] });
   }
 }
@@ -358,7 +363,6 @@ async function handleUploadGallery(req, res, user) {
   }
 
   try {
-    // Parse form data manually from request body
     const contentType = req.headers['content-type'] || '';
     
     if (contentType.includes('application/json')) {
@@ -378,31 +382,40 @@ async function handleUploadGallery(req, res, user) {
         return jsonResponse(res, 400, { error: 'Invalid YouTube URL' });
       }
 
-      await run(
+      // Insert into database
+      const insertResult = await run(
         `INSERT INTO GalleryMedia (title, caption, mediaType, mediaUrl, mimeType, isPublished, createdAt, updatedAt)
          VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
         [title, caption || '', 'video', youtubeUrl, 'youtube', 1]
       );
 
-      // Get the created record
-      const rows = await query(
-        'SELECT * FROM GalleryMedia WHERE mediaUrl = ? AND title = ? ORDER BY createdAt DESC LIMIT 1',
-        [youtubeUrl, title]
+      console.log('✅ Gallery upload inserted:', { title, youtubeUrl });
+
+      // Fetch all gallery items to ensure fresh data
+      const allRows = await query(
+        'SELECT * FROM GalleryMedia WHERE isPublished = 1 ORDER BY createdAt DESC LIMIT 1'
       );
 
-      const created = rows.length ? rows[0] : { title, caption: caption || '', mediaType: 'video', mediaUrl: youtubeUrl, mimeType: 'youtube', isPublished: 1 };
+      if (allRows.length > 0) {
+        const created = allRows[0];
+        console.log('✅ Gallery upload confirmed:', created);
+        return jsonResponse(res, 200, { message: 'Media uploaded successfully', data: created });
+      }
 
-      jsonResponse(res, 200, { message: 'Media uploaded successfully', data: created });
+      // Fallback: return the object we just created
+      const fallback = { title, caption: caption || '', mediaType: 'video', mediaUrl: youtubeUrl, mimeType: 'youtube', isPublished: 1 };
+      console.log('⚠️ Could not retrieve inserted record, returning fallback:', fallback);
+      return jsonResponse(res, 200, { message: 'Media uploaded successfully', data: fallback });
     } else {
       // For multipart form data (file uploads), we need busboy or similar
       // For now, return error with instructions to use JSON with YouTube URL
-      jsonResponse(res, 400, {
+      return jsonResponse(res, 400, {
         error: 'File uploads require external storage setup. Use YouTube URLs for now.',
       });
     }
   } catch (err) {
-    console.error('Upload gallery error:', err);
-    jsonResponse(res, 400, { error: err.message });
+    console.error('❌ Upload gallery error:', err.message);
+    return jsonResponse(res, 400, { error: err.message });
   }
 }
 

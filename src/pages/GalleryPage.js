@@ -26,18 +26,41 @@ const fallbackGalleryItems = [
 ];
 
 export default function GalleryPage({ setPage }) {
-  const [galleryItems, setGalleryItems] = useState(fallbackGalleryItems);
+  const [galleryItems, setGalleryItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const loadGallery = async () => {
+    setLoading(true);
+    try {
+      const response = await fetch(API + "/gallery");
+      const data = await response.json();
+      if (!response.ok) {
+        console.error('Gallery fetch error:', data);
+        setGalleryItems(fallbackGalleryItems);
+        setLoading(false);
+        return;
+      }
+      
+      // Use API data if available and non-empty, otherwise use fallback
+      if (Array.isArray(data.data) && data.data.length > 0) {
+        setGalleryItems(data.data);
+      } else {
+        setGalleryItems(fallbackGalleryItems);
+      }
+    } catch (err) {
+      console.error('Gallery load error:', err);
+      setGalleryItems(fallbackGalleryItems);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const loadGallery = async () => {
-      try {
-        const response = await fetch(API + "/gallery");
-        const data = await response.json();
-        if (!response.ok || !Array.isArray(data.data) || data.data.length === 0) return;
-        setGalleryItems(data.data);
-      } catch { }
-    };
     loadGallery();
+    
+    // Refetch gallery every 5 seconds to catch admin uploads
+    const interval = setInterval(loadGallery, 5000);
+    return () => clearInterval(interval);
   }, []);
 
   return (
@@ -54,8 +77,13 @@ export default function GalleryPage({ setPage }) {
         </div>
       </div>
       <div style={{ maxWidth: 1100, margin: "0 auto", padding: "36px 24px 56px" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 24 }}>
-          {galleryItems.map((item) => (
+        {loading && galleryItems.length === 0 ? (
+          <div style={{ textAlign: "center", padding: "40px 20px", color: "#666" }}>
+            <p>Loading gallery...</p>
+          </div>
+        ) : (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 24 }}>
+            {galleryItems.map((item) => (
             <article key={item.id || item.mediaUrl || item.title} style={{ background: "white", borderRadius: 14, overflow: "hidden", boxShadow: "0 4px 20px rgba(0,0,0,0.08)" }}>
               <div style={{ height: 220, background: "#DDE2ED" }}>
                 {item.mimeType === "youtube" ? (
@@ -78,7 +106,8 @@ export default function GalleryPage({ setPage }) {
               </div>
             </article>
           ))}
-        </div>
+          </div>
+        )}
         <div style={{ marginTop: 30, display: "flex", justifyContent: "center" }}>
           <button onClick={() => setPage("Programs")} style={{ background: NAVY, color: "white", border: "none", padding: "12px 24px", borderRadius: 8, fontWeight: 800, cursor: "pointer" }}>
             View Programs

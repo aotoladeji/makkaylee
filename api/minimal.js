@@ -1,14 +1,17 @@
 /**
- * Minimal Vercel Function API Handler
- * No dependencies on Sequelize or sqlite3.
- * Handles critical endpoints with fallback data.
+ * Vercel Function API Handler
+ * Handles critical endpoints including admin operations.
+ * Attempts to proxy to backend server, falls back to empty responses.
  */
 
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
+const http = require('http');
+const https = require('https');
 
 const SECRET = process.env.JWT_SECRET || 'your_super_secret_jwt_key_change_in_production';
 const JWT_EXPIRE = process.env.JWT_EXPIRE || '1d';
+const BACKEND_URL = process.env.BACKEND_URL || '';
 
 // Hardcoded seeded user
 const DEFAULT_USER = {
@@ -18,6 +21,40 @@ const DEFAULT_USER = {
   isAdmin: true,
   isStaff: false,
 };
+
+// Helper function to proxy requests to backend
+async function proxyToBackend(method, pathname, headers, body) {
+  if (!BACKEND_URL) return null;
+  
+  return new Promise((resolve) => {
+    const url = new URL(pathname, BACKEND_URL);
+    const isHttps = url.protocol === 'https:';
+    const client = isHttps ? https : http;
+    
+    const options = {
+      method,
+      hostname: url.hostname,
+      port: url.port,
+      path: url.pathname + url.search,
+      headers: {
+        ...headers,
+        host: url.host,
+      },
+    };
+    
+    const req = client.request(options, (res) => {
+      let data = '';
+      res.on('data', chunk => { data += chunk; });
+      res.on('end', () => {
+        resolve({ status: res.statusCode, body: data, headers: res.headers });
+      });
+    });
+    
+    req.on('error', () => resolve(null));
+    if (body) req.write(body);
+    req.end();
+  });
+}
 
 // Middleware to check JWT
 function auth(req, res, next) {
@@ -77,7 +114,7 @@ async function handleRequest(req, res) {
       req.on('end', async () => {
         try {
           const { username, password } = JSON.parse(body);
-          if (username === DEFAULT_USER.username) {
+          if (username.toLowerCase() === DEFAULT_USER.username.toLowerCase()) {
             const match = await bcrypt.compare(password, DEFAULT_USER.passwordHash);
             if (match) {
               const token = jwt.sign(
@@ -100,6 +137,146 @@ async function handleRequest(req, res) {
           res.end(JSON.stringify({ error: err.message }));
         }
       });
+      return;
+    }
+
+    // Route: GET /api/payment-config
+    if (pathname === '/api/payment-config' && req.method === 'GET') {
+      if (BACKEND_URL) {
+        const backendRes = await proxyToBackend('GET', '/api/payment-config', {}, null);
+        if (backendRes) {
+          res.setHeader('Content-Type', backendRes.headers['content-type'] || 'application/json');
+          res.writeHead(backendRes.status);
+          res.end(backendRes.body);
+          return;
+        }
+      }
+      res.setHeader('Content-Type', 'application/json');
+      res.writeHead(200);
+      res.end(JSON.stringify({
+        data: {
+          id: 1,
+          oneTimeRegistrationFee: 40000,
+          trainingSessionFee: 30000,
+          bundleMonths: 0,
+          monthlyBundleFee: 0,
+          oneTimeTotal: 70000,
+          bundleTotal: 70000,
+          recurringOneTimeTotal: 70000,
+          recurringBundleTotal: 70000,
+          hasBundleOption: false,
+        },
+      }));
+      return;
+    }
+
+    // Route: GET /api/gallery
+    if (pathname === '/api/gallery' && req.method === 'GET') {
+      if (BACKEND_URL) {
+        const backendRes = await proxyToBackend('GET', '/api/gallery', {}, null);
+        if (backendRes) {
+          res.setHeader('Content-Type', backendRes.headers['content-type'] || 'application/json');
+          res.writeHead(backendRes.status);
+          res.end(backendRes.body);
+          return;
+        }
+      }
+      res.setHeader('Content-Type', 'application/json');
+      res.writeHead(200);
+      res.end(JSON.stringify({ data: [] }));
+      return;
+    }
+
+    // Route: GET /api/sponsors
+    if (pathname === '/api/sponsors' && req.method === 'GET') {
+      if (BACKEND_URL) {
+        const backendRes = await proxyToBackend('GET', '/api/sponsors', {}, null);
+        if (backendRes) {
+          res.setHeader('Content-Type', backendRes.headers['content-type'] || 'application/json');
+          res.writeHead(backendRes.status);
+          res.end(backendRes.body);
+          return;
+        }
+      }
+      res.setHeader('Content-Type', 'application/json');
+      res.writeHead(200);
+      res.end(JSON.stringify([]));
+      return;
+    }
+
+    // Admin endpoints - proxy to backend or return empty data
+    const adminEndpoints = [
+      { path: /^\/api\/admin\/users$/, methods: ['GET'] },
+      { path: /^\/api\/admin\/gallery/, methods: ['GET', 'POST', 'DELETE'] },
+      { path: /^\/api\/admin\/registrations/, methods: ['GET', 'PUT', 'POST'] },
+      { path: /^\/api\/admin\/sponsors/, methods: ['GET', 'POST', 'DELETE'] },
+      { path: /^\/api\/admin\/staff/, methods: ['POST', 'PUT', 'DELETE'] },
+      { path: /^\/api\/admin\/.*/, methods: ['GET', 'POST', 'PUT', 'DELETE'] },
+    ];
+
+    const isAdminEndpoint = adminEndpoints.some(ep => ep.path.test(pathname) && ep.methods.includes(req.method));
+
+    if (isAdminEndpoint) {
+      // Check auth first
+      const authHeader = req.headers.authorization;
+      if (!authHeader) {
+        res.setHeader('Content-Type', 'application/json');
+        res.writeHead(401);
+        res.end(JSON.stringify({ error: 'No token' }));
+        return;
+      }
+
+      const token = authHeader.split(' ')[1];
+      let user;
+      try {
+        user = jwt.verify(token, SECRET);
+        if (!user.isAdmin) {
+          res.setHeader('Content-Type', 'application/json');
+          res.writeHead(403);
+          res.end(JSON.stringify({ error: 'Forbidden' }));
+          return;
+        }
+      } catch {
+        res.setHeader('Content-Type', 'application/json');
+        res.writeHead(401);
+        res.end(JSON.stringify({ error: 'Invalid token' }));
+        return;
+      }
+
+      // Try to proxy to backend
+      if (BACKEND_URL) {
+        let body = '';
+        if (req.method !== 'GET' && req.method !== 'DELETE') {
+          body = await new Promise((resolve) => {
+            let data = '';
+            req.on('data', chunk => { data += chunk; });
+            req.on('end', () => resolve(data));
+          });
+        }
+
+        const backendRes = await proxyToBackend(req.method, pathname, req.headers, body);
+        if (backendRes) {
+          res.setHeader('Content-Type', backendRes.headers['content-type'] || 'application/json');
+          res.writeHead(backendRes.status);
+          res.end(backendRes.body);
+          return;
+        }
+      }
+
+      // Fallback: return appropriate empty response
+      res.setHeader('Content-Type', 'application/json');
+      res.writeHead(200);
+      if (pathname === '/api/admin/users') {
+        res.end(JSON.stringify({ data: [] }));
+      } else if (pathname === '/api/admin/gallery') {
+        res.end(JSON.stringify({ data: [] }));
+      } else if (pathname === '/api/admin/registrations') {
+        res.end(JSON.stringify({ data: [] }));
+      } else if (pathname === '/api/admin/sponsors') {
+        res.end(JSON.stringify([]));
+      } else {
+        res.end(JSON.stringify({ data: [] }));
+      }
       return;
     }
 

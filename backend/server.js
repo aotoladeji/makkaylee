@@ -211,7 +211,7 @@ app.post('/api/children', auth, async (req, res) => {
 app.post('/api/login', async (req, res) => {
   try {
     const { username, password } = req.body;
-    const user = await User.findOne({ where: { username } });
+    const user = await User.findOne({ where: sequelize.where(sequelize.fn('LOWER', sequelize.col('username')), Op.eq, username.toLowerCase()) });
     if (!user) return res.status(401).json({ error: 'Invalid credentials' });
     const match = await bcrypt.compare(password, user.password);
     if (!match) return res.status(401).json({ error: 'Invalid credentials' });
@@ -226,7 +226,7 @@ app.post('/api/login', async (req, res) => {
 app.post('/api/staff/login', async (req, res) => {
   try {
     const { username, password } = req.body;
-    const user = await User.findOne({ where: { username } });
+    const user = await User.findOne({ where: sequelize.where(sequelize.fn('LOWER', sequelize.col('username')), Op.eq, username.toLowerCase()) });
     if (!user || !user.isStaff) return res.status(401).json({ error: 'Invalid staff credentials' });
 
     const match = await bcrypt.compare(password, user.password);

@@ -1,80 +1,331 @@
 /**
- * Vercel Function API Handler
- * Handles critical endpoints including admin operations.
- * Attempts to proxy to backend server, falls back to empty responses.
+ * Vercel Serverless Functions API Handler with Turso Database
+ * Handles all backend operations for Vercel-only deployment
  */
 
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
-const http = require('http');
-const https = require('https');
+const { query, run } = require('./db');
 
 const SECRET = process.env.JWT_SECRET || 'your_super_secret_jwt_key_change_in_production';
 const JWT_EXPIRE = process.env.JWT_EXPIRE || '1d';
-const BACKEND_URL = process.env.BACKEND_URL || '';
 
-// Hardcoded seeded user
-const DEFAULT_USER = {
-  id: 1,
-  username: 'admin',
-  passwordHash: '$2b$10$KTU6mVnY8eA4fDb68N5Vu.CvBr/gDgUwGM8yFYUVwsV2GtBRcRyhC', // oladeji
-  isAdmin: true,
-  isStaff: false,
-};
+// ─────────────────────────────────────────────────────────────────────────
+// AUTH MIDDLEWARE
+// ─────────────────────────────────────────────────────────────────────────
 
-// Helper function to proxy requests to backend
-async function proxyToBackend(method, pathname, headers, body) {
-  if (!BACKEND_URL) return null;
-  
-  return new Promise((resolve) => {
-    const url = new URL(pathname, BACKEND_URL);
-    const isHttps = url.protocol === 'https:';
-    const client = isHttps ? https : http;
-    
-    const options = {
-      method,
-      hostname: url.hostname,
-      port: url.port,
-      path: url.pathname + url.search,
-      headers: {
-        ...headers,
-        host: url.host,
-      },
-    };
-    
-    const req = client.request(options, (res) => {
-      let data = '';
-      res.on('data', chunk => { data += chunk; });
-      res.on('end', () => {
-        resolve({ status: res.statusCode, body: data, headers: res.headers });
-      });
-    });
-    
-    req.on('error', () => resolve(null));
-    if (body) req.write(body);
-    req.end();
-  });
+function extractToken(authHeader) {
+  if (!authHeader) return null;
+  const parts = authHeader.split(' ');
+  return parts.length === 2 ? parts[1] : null;
 }
 
-// Middleware to check JWT
-function auth(req, res, next) {
-  const authHeader = req.headers.authorization;
-  if (!authHeader) return res.status(401).json({ error: 'No token' });
-  const token = authHeader.split(' ')[1];
+function verifyToken(token) {
   try {
-    req.user = jwt.verify(token, SECRET);
-    next();
+    return jwt.verify(token, SECRET);
   } catch {
-    res.status(401).json({ error: 'Invalid token' });
+    return null;
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// RESPONSE HELPERS
+// ─────────────────────────────────────────────────────────────────────────
+
+function jsonResponse(res, status, data) {
+  res.setHeader('Content-Type', 'application/json');
+  res.writeHead(status);
+  res.end(JSON.stringify(data));
+}
+
+function corsHeaders(res) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// REQUEST BODY PARSER
+// ─────────────────────────────────────────────────────────────────────────
+
+function getRequestBody(req) {
+  return new Promise((resolve) => {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      try {
+        resolve(body ? JSON.parse(body) : {});
+      } catch {
+        resolve({});
+      }
+    });
+  });
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────
+// ROUTES
+// ─────────────────────────────────────────────────────────────────────────
+
+async function handleLogin(req, res) {
+  const body = await getRequestBody(req);
+  const { username, password } = body;
+
+  if (!username || !password) {
+    return jsonResponse(res, 400, { error: 'Username and password required' });
+  }
+
+  try {
+    const rows = await query(
+      'SELECT id, username, password, isAdmin, isStaff FROM User WHERE LOWER(username) = LOWER(?)',
+      [username]
+    );
+
+    if (!rows.length) {
+      return jsonResponse(res, 401, { error: 'Invalid credentials' });
+    }
+
+    const user = rows[0];
+    const match = await bcrypt.compare(password, user.password);
+
+    if (!match) {
+      return jsonResponse(res, 401, { error: 'Invalid credentials' });
+    }
+
+    const token = jwt.sign(
+      { id: user.id, isAdmin: user.isAdmin, isStaff: user.isStaff },
+      SECRET,
+      { expiresIn: JWT_EXPIRE }
+    );
+
+    jsonResponse(res, 200, { token });
+  } catch (err) {
+    console.error('Login error:', err);
+    jsonResponse(res, 400, { error: err.message });
+  }
+}
+
+async function handleStaffLogin(req, res) {
+  const body = await getRequestBody(req);
+  const { username, password } = body;
+
+  if (!username || !password) {
+    return jsonResponse(res, 400, { error: 'Username and password required' });
+  }
+
+  try {
+    const rows = await query(
+      'SELECT id, username, password, isAdmin, isStaff FROM User WHERE LOWER(username) = LOWER(?) AND isStaff = 1',
+      [username]
+    );
+
+    if (!rows.length) {
+      return jsonResponse(res, 401, { error: 'Invalid staff credentials' });
+    }
+
+    const user = rows[0];
+    const match = await bcrypt.compare(password, user.password);
+
+    if (!match) {
+      return jsonResponse(res, 401, { error: 'Invalid staff credentials' });
+    }
+
+    const token = jwt.sign(
+      { id: user.id, isAdmin: user.isAdmin, isStaff: user.isStaff },
+      SECRET,
+      { expiresIn: JWT_EXPIRE }
+    );
+
+    jsonResponse(res, 200, { token });
+  } catch (err) {
+    console.error('Staff login error:', err);
+    jsonResponse(res, 400, { error: err.message });
+  }
+}
+
+async function handleGetTrainingEvent(req, res) {
+  try {
+    const rows = await query('SELECT * FROM TrainingEvent WHERE isActive = 1 ORDER BY updatedAt DESC LIMIT 1');
+    
+    if (rows.length) {
+      jsonResponse(res, 200, { data: rows[0] });
+    } else {
+      // Return default event
+      jsonResponse(res, 200, {
+        data: {
+          id: 1,
+          title: 'Next Training Session',
+          dateLabel: 'April 4, 2026',
+          venue: 'International School Ibadan, University of Ibadan',
+          note: 'Open to all new registrants',
+          isActive: 1,
+        },
+      });
+    }
+  } catch (err) {
+    console.error('Get training event error:', err);
+    jsonResponse(res, 400, { error: err.message });
+  }
+}
+
+async function handleUpdateTrainingEvent(req, res, user) {
+  if (!user.isAdmin) {
+    return jsonResponse(res, 403, { error: 'Forbidden' });
+  }
+
+  const body = await getRequestBody(req);
+  const { title, dateLabel, venue, note } = body;
+
+  if (!title || !dateLabel || !venue) {
+    return jsonResponse(res, 400, { error: 'Title, date label, and venue are required' });
+  }
+
+  try {
+    // Get or create active event
+    const rows = await query('SELECT id FROM TrainingEvent WHERE isActive = 1 ORDER BY updatedAt DESC LIMIT 1');
+    
+    if (rows.length) {
+      const eventId = rows[0].id;
+      await run(
+        'UPDATE TrainingEvent SET title = ?, dateLabel = ?, venue = ?, note = ? WHERE id = ?',
+        [title, dateLabel, venue, note || '', eventId]
+      );
+      jsonResponse(res, 200, { message: 'Training event updated successfully' });
+    } else {
+      // Create new event
+      await run(
+        'INSERT INTO TrainingEvent (title, dateLabel, venue, note, isActive) VALUES (?, ?, ?, ?, 1)',
+        [title, dateLabel, venue, note || '']
+      );
+      jsonResponse(res, 200, { message: 'Training event created successfully' });
+    }
+  } catch (err) {
+    console.error('Update training event error:', err);
+    jsonResponse(res, 400, { error: err.message });
+  }
+}
+
+async function handleGetPaymentConfig(req, res) {
+  try {
+    const rows = await query('SELECT * FROM PaymentConfig WHERE isActive = 1 ORDER BY updatedAt DESC LIMIT 1');
+    
+    if (rows.length) {
+      const config = rows[0];
+      jsonResponse(res, 200, {
+        data: {
+          ...config,
+          hasBundleOption: Number(config.monthlyBundleFee || 0) > 0,
+        },
+      });
+    } else {
+      // Return default config
+      jsonResponse(res, 200, {
+        data: {
+          id: 1,
+          oneTimeRegistrationFee: 40000,
+          trainingSessionFee: 30000,
+          bundleMonths: 0,
+          monthlyBundleFee: 0,
+          hasBundleOption: false,
+        },
+      });
+    }
+  } catch (err) {
+    console.error('Get payment config error:', err);
+    jsonResponse(res, 400, { error: err.message });
+  }
+}
+
+async function handleGetPublicGallery(req, res) {
+  try {
+    const rows = await query('SELECT * FROM GalleryMedia WHERE isPublished = 1 ORDER BY createdAt DESC');
+    jsonResponse(res, 200, { data: rows });
+  } catch (err) {
+    console.error('Get gallery error:', err);
+    jsonResponse(res, 200, { data: [] });
+  }
+}
+
+async function handleGetAdminGallery(req, res, user) {
+  if (!user.isAdmin) {
+    return jsonResponse(res, 403, { error: 'Forbidden' });
+  }
+
+  try {
+    const rows = await query('SELECT * FROM GalleryMedia ORDER BY createdAt DESC');
+    jsonResponse(res, 200, { data: rows });
+  } catch (err) {
+    console.error('Get admin gallery error:', err);
+    jsonResponse(res, 200, { data: [] });
+  }
+}
+
+async function handleGetPublicSponsors(req, res) {
+  try {
+    const rows = await query('SELECT * FROM Sponsor WHERE isPublished = 1 ORDER BY createdAt DESC');
+    jsonResponse(res, 200, rows);
+  } catch (err) {
+    console.error('Get sponsors error:', err);
+    jsonResponse(res, 200, []);
+  }
+}
+
+async function handleGetAdminSponsors(req, res, user) {
+  if (!user.isAdmin) {
+    return jsonResponse(res, 403, { error: 'Forbidden' });
+  }
+
+  try {
+    const rows = await query('SELECT * FROM Sponsor ORDER BY createdAt DESC');
+    jsonResponse(res, 200, rows);
+  } catch (err) {
+    console.error('Get admin sponsors error:', err);
+    jsonResponse(res, 200, []);
+  }
+}
+
+async function handleGetAdminUsers(req, res, user) {
+  if (!user.isAdmin) {
+    return jsonResponse(res, 403, { error: 'Forbidden' });
+  }
+
+  try {
+    const rows = await query('SELECT id, username, email, parentName, phone, isAdmin, isStaff, createdAt FROM User');
+    jsonResponse(res, 200, { data: rows });
+  } catch (err) {
+    console.error('Get users error:', err);
+    jsonResponse(res, 200, { data: [] });
+  }
+}
+
+async function handleGetAdminRegistrations(req, res, user) {
+  if (!user.isAdmin) {
+    return jsonResponse(res, 403, { error: 'Forbidden' });
+  }
+
+  try {
+    const rows = await query(`
+      SELECT r.*, u.parentName, u.email, u.phone, b.amountDue, b.registrationFee, b.trainingSessionFee, 
+             b.bundleMonths, b.bundleFee, b.paymentMode, b.selectedAmount, b.paid, b.paymentConfirmedAt
+      FROM Registration r
+      LEFT JOIN User u ON r.userId = u.id
+      LEFT JOIN BillingInfo b ON r.id = b.registrationId
+      ORDER BY r.createdAt DESC
+    `);
+    jsonResponse(res, 200, { data: rows });
+  } catch (err) {
+    console.error('Get registrations error:', err);
+    jsonResponse(res, 200, { data: [] });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// MAIN HANDLER
+// ─────────────────────────────────────────────────────────────────────────
+
 async function handleRequest(req, res) {
   try {
-    // Add CORS headers
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    corsHeaders(res);
 
     if (req.method === 'OPTIONS') {
       res.writeHead(200);
@@ -85,210 +336,82 @@ async function handleRequest(req, res) {
     const url = new URL(req.url, `http://${req.headers.host}`);
     const pathname = url.pathname;
 
-    // Route: GET /api/training-event
-    if (pathname === '/api/training-event' && req.method === 'GET') {
-      res.setHeader('Content-Type', 'application/json');
-      res.writeHead(200);
-      res.end(JSON.stringify({
-        data: {
-          id: 1,
-          title: 'Next Training Session',
-          dateLabel: 'April 4, 2026',
-          venue: 'International School Ibadan, University of Ibadan',
-          note: 'Open to all new registrants',
-        },
-      }));
-      return;
-    }
+    // ─── PUBLIC ENDPOINTS ────────────────────────────────────────────────
 
-    // Route: POST /api/login
+    // POST /api/login
     if (pathname === '/api/login' && req.method === 'POST') {
-      let body = '';
-      req.on('data', chunk => {
-        body += chunk.toString('utf8');
-        if (body.length > 1e6) {
-          res.writeHead(413);
-          res.end('Payload too large');
-        }
-      });
-      req.on('end', async () => {
-        try {
-          const { username, password } = JSON.parse(body);
-          if (username.toLowerCase() === DEFAULT_USER.username.toLowerCase()) {
-            const match = await bcrypt.compare(password, DEFAULT_USER.passwordHash);
-            if (match) {
-              const token = jwt.sign(
-                { id: DEFAULT_USER.id, isAdmin: DEFAULT_USER.isAdmin, isStaff: DEFAULT_USER.isStaff },
-                SECRET,
-                { expiresIn: JWT_EXPIRE }
-              );
-              res.setHeader('Content-Type', 'application/json');
-              res.writeHead(200);
-              res.end(JSON.stringify({ token }));
-              return;
-            }
-          }
-          res.setHeader('Content-Type', 'application/json');
-          res.writeHead(401);
-          res.end(JSON.stringify({ error: 'Invalid credentials' }));
-        } catch (err) {
-          res.setHeader('Content-Type', 'application/json');
-          res.writeHead(400);
-          res.end(JSON.stringify({ error: err.message }));
-        }
-      });
-      return;
+      return handleLogin(req, res);
     }
 
-    // Route: GET /api/payment-config
-    if (pathname === '/api/payment-config' && req.method === 'GET') {
-      if (BACKEND_URL) {
-        const backendRes = await proxyToBackend('GET', '/api/payment-config', {}, null);
-        if (backendRes) {
-          res.setHeader('Content-Type', backendRes.headers['content-type'] || 'application/json');
-          res.writeHead(backendRes.status);
-          res.end(backendRes.body);
-          return;
-        }
-      }
-      res.setHeader('Content-Type', 'application/json');
-      res.writeHead(200);
-      res.end(JSON.stringify({
-        data: {
-          id: 1,
-          oneTimeRegistrationFee: 40000,
-          trainingSessionFee: 30000,
-          bundleMonths: 0,
-          monthlyBundleFee: 0,
-          oneTimeTotal: 70000,
-          bundleTotal: 70000,
-          recurringOneTimeTotal: 70000,
-          recurringBundleTotal: 70000,
-          hasBundleOption: false,
-        },
-      }));
-      return;
+    // POST /api/staff/login
+    if (pathname === '/api/staff/login' && req.method === 'POST') {
+      return handleStaffLogin(req, res);
     }
 
-    // Route: GET /api/gallery
+    // GET /api/training-event
+    if (pathname === '/api/training-event' && req.method === 'GET') {
+      return handleGetTrainingEvent(req, res);
+    }
+
+    // GET /api/gallery
     if (pathname === '/api/gallery' && req.method === 'GET') {
-      if (BACKEND_URL) {
-        const backendRes = await proxyToBackend('GET', '/api/gallery', {}, null);
-        if (backendRes) {
-          res.setHeader('Content-Type', backendRes.headers['content-type'] || 'application/json');
-          res.writeHead(backendRes.status);
-          res.end(backendRes.body);
-          return;
-        }
-      }
-      res.setHeader('Content-Type', 'application/json');
-      res.writeHead(200);
-      res.end(JSON.stringify({ data: [] }));
-      return;
+      return handleGetPublicGallery(req, res);
     }
 
-    // Route: GET /api/sponsors
+    // GET /api/sponsors
     if (pathname === '/api/sponsors' && req.method === 'GET') {
-      if (BACKEND_URL) {
-        const backendRes = await proxyToBackend('GET', '/api/sponsors', {}, null);
-        if (backendRes) {
-          res.setHeader('Content-Type', backendRes.headers['content-type'] || 'application/json');
-          res.writeHead(backendRes.status);
-          res.end(backendRes.body);
-          return;
-        }
-      }
-      res.setHeader('Content-Type', 'application/json');
-      res.writeHead(200);
-      res.end(JSON.stringify([]));
-      return;
+      return handleGetPublicSponsors(req, res);
     }
 
-    // Admin endpoints - proxy to backend or return empty data
-    const adminEndpoints = [
-      { path: /^\/api\/admin\/users$/, methods: ['GET'] },
-      { path: /^\/api\/admin\/gallery/, methods: ['GET', 'POST', 'DELETE'] },
-      { path: /^\/api\/admin\/registrations/, methods: ['GET', 'PUT', 'POST'] },
-      { path: /^\/api\/admin\/sponsors/, methods: ['GET', 'POST', 'DELETE'] },
-      { path: /^\/api\/admin\/staff/, methods: ['POST', 'PUT', 'DELETE'] },
-      { path: /^\/api\/admin\/.*/, methods: ['GET', 'POST', 'PUT', 'DELETE'] },
-    ];
+    // GET /api/payment-config
+    if (pathname === '/api/payment-config' && req.method === 'GET') {
+      return handleGetPaymentConfig(req, res);
+    }
 
-    const isAdminEndpoint = adminEndpoints.some(ep => ep.path.test(pathname) && ep.methods.includes(req.method));
+    // ─── ADMIN ENDPOINTS (require auth) ──────────────────────────────────
 
-    if (isAdminEndpoint) {
-      // Check auth first
-      const authHeader = req.headers.authorization;
-      if (!authHeader) {
-        res.setHeader('Content-Type', 'application/json');
-        res.writeHead(401);
-        res.end(JSON.stringify({ error: 'No token' }));
-        return;
-      }
+    const authHeader = req.headers.authorization;
+    if (!authHeader && pathname.startsWith('/api/admin/')) {
+      return jsonResponse(res, 401, { error: 'No token' });
+    }
 
-      const token = authHeader.split(' ')[1];
-      let user;
-      try {
-        user = jwt.verify(token, SECRET);
-        if (!user.isAdmin) {
-          res.setHeader('Content-Type', 'application/json');
-          res.writeHead(403);
-          res.end(JSON.stringify({ error: 'Forbidden' }));
-          return;
-        }
-      } catch {
-        res.setHeader('Content-Type', 'application/json');
-        res.writeHead(401);
-        res.end(JSON.stringify({ error: 'Invalid token' }));
-        return;
-      }
+    const token = authHeader ? extractToken(authHeader) : null;
+    const user = token ? verifyToken(token) : null;
 
-      // Try to proxy to backend
-      if (BACKEND_URL) {
-        let body = '';
-        if (req.method !== 'GET' && req.method !== 'DELETE') {
-          body = await new Promise((resolve) => {
-            let data = '';
-            req.on('data', chunk => { data += chunk; });
-            req.on('end', () => resolve(data));
-          });
-        }
+    if (!user && pathname.startsWith('/api/admin/')) {
+      return jsonResponse(res, 401, { error: 'Invalid token' });
+    }
 
-        const backendRes = await proxyToBackend(req.method, pathname, req.headers, body);
-        if (backendRes) {
-          res.setHeader('Content-Type', backendRes.headers['content-type'] || 'application/json');
-          res.writeHead(backendRes.status);
-          res.end(backendRes.body);
-          return;
-        }
-      }
+    // PUT /api/admin/training-event
+    if (pathname === '/api/admin/training-event' && req.method === 'PUT') {
+      return handleUpdateTrainingEvent(req, res, user);
+    }
 
-      // Fallback: return appropriate empty response
-      res.setHeader('Content-Type', 'application/json');
-      res.writeHead(200);
-      if (pathname === '/api/admin/users') {
-        res.end(JSON.stringify({ data: [] }));
-      } else if (pathname === '/api/admin/gallery') {
-        res.end(JSON.stringify({ data: [] }));
-      } else if (pathname === '/api/admin/registrations') {
-        res.end(JSON.stringify({ data: [] }));
-      } else if (pathname === '/api/admin/sponsors') {
-        res.end(JSON.stringify([]));
-      } else {
-        res.end(JSON.stringify({ data: [] }));
-      }
-      return;
+    // GET /api/admin/gallery
+    if (pathname === '/api/admin/gallery' && req.method === 'GET') {
+      return handleGetAdminGallery(req, res, user);
+    }
+
+    // GET /api/admin/sponsors
+    if (pathname === '/api/admin/sponsors' && req.method === 'GET') {
+      return handleGetAdminSponsors(req, res, user);
+    }
+
+    // GET /api/admin/users
+    if (pathname === '/api/admin/users' && req.method === 'GET') {
+      return handleGetAdminUsers(req, res, user);
+    }
+
+    // GET /api/admin/registrations
+    if (pathname === '/api/admin/registrations' && req.method === 'GET') {
+      return handleGetAdminRegistrations(req, res, user);
     }
 
     // 404
-    res.setHeader('Content-Type', 'application/json');
-    res.writeHead(404);
-    res.end(JSON.stringify({ error: 'Not found' }));
+    jsonResponse(res, 404, { error: 'Not found' });
   } catch (error) {
     console.error('API error:', error);
-    res.setHeader('Content-Type', 'application/json');
-    res.writeHead(500);
-    res.end(JSON.stringify({ error: 'Internal server error' }));
+    jsonResponse(res, 500, { error: 'Internal server error' });
   }
 }
 

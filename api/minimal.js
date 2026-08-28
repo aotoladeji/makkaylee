@@ -132,7 +132,7 @@ async function handleRegister(req, res) {
     
     // Create parent user
     const userResult = await run(
-      'INSERT INTO User (username, password, email, parentName, phone, address, isAdmin, isStaff, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, 0, 0, datetime("now"), datetime("now"))',
+      'INSERT INTO User (username, password, email, parentName, phone, address, isAdmin, isStaff, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, 0, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)',
       [username, hash, email, parentName, phone || '', address || '']
     );
 
@@ -144,7 +144,7 @@ async function handleRegister(req, res) {
 
     // Create registration
     const regResult = await run(
-      'INSERT INTO Registration (playerName, age, gender, program, medical, consent, userId, status, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime("now"), datetime("now"))',
+      'INSERT INTO Registration (playerName, age, gender, program, medical, consent, userId, status, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)',
       [playerName, age, gender, program, medical || '', consent ? 1 : 0, userId, 'Pending Payment']
     );
 
@@ -153,7 +153,7 @@ async function handleRegister(req, res) {
     // Create billing info
     const totalAmountDue = computeAmountByMode(config.oneTimeRegistrationFee, config.trainingSessionFee, config.monthlyBundleFee, 'one_time', true);
     await run(
-      'INSERT INTO BillingInfo (registrationId, amountDue, registrationFee, registrationFeeSettled, trainingSessionFee, bundleMonths, bundleFee, paymentMode, selectedAmount, dueDate, paid, createdAt, updatedAt) VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, 0, datetime("now"), datetime("now"))',
+      'INSERT INTO BillingInfo (registrationId, amountDue, registrationFee, registrationFeeSettled, trainingSessionFee, bundleMonths, bundleFee, paymentMode, selectedAmount, dueDate, paid, createdAt, updatedAt) VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)',
       [registrationId, totalAmountDue, config.oneTimeRegistrationFee, config.trainingSessionFee, config.bundleMonths, config.monthlyBundleFee, 'one_time', totalAmountDue, config.dueDate]
     );
 
@@ -217,7 +217,7 @@ async function handleAddChild(req, res, user) {
 
     // Create registration
     const regResult = await run(
-      'INSERT INTO Registration (playerName, age, gender, program, medical, consent, userId, status, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime("now"), datetime("now"))',
+      'INSERT INTO Registration (playerName, age, gender, program, medical, consent, userId, status, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)',
       [playerName, age, gender, program, medical || '', consent ? 1 : 0, user.id, 'Pending Payment']
     );
 
@@ -226,7 +226,7 @@ async function handleAddChild(req, res, user) {
     // Create billing info
     const totalAmountDue = computeAmountByMode(config.oneTimeRegistrationFee, config.trainingSessionFee, config.monthlyBundleFee, 'one_time', true);
     await run(
-      'INSERT INTO BillingInfo (registrationId, amountDue, registrationFee, registrationFeeSettled, trainingSessionFee, bundleMonths, bundleFee, paymentMode, selectedAmount, dueDate, paid, createdAt, updatedAt) VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, 0, datetime("now"), datetime("now"))',
+      'INSERT INTO BillingInfo (registrationId, amountDue, registrationFee, registrationFeeSettled, trainingSessionFee, bundleMonths, bundleFee, paymentMode, selectedAmount, dueDate, paid, createdAt, updatedAt) VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)',
       [registrationId, totalAmountDue, config.oneTimeRegistrationFee, config.trainingSessionFee, config.bundleMonths, config.monthlyBundleFee, 'one_time', totalAmountDue, config.dueDate]
     );
 
@@ -363,7 +363,7 @@ async function handleUpdateChild(req, res, user) {
     }
 
     await run(
-      'UPDATE Registration SET playerName = ?, age = ?, gender = ?, program = ?, medical = ?, updatedAt = datetime("now") WHERE id = ?',
+      'UPDATE Registration SET playerName = ?, age = ?, gender = ?, program = ?, medical = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?',
       [playerName, numericAge, gender, program, medical || '', childIdParam]
     );
 
@@ -445,7 +445,7 @@ async function handleChangePassword(req, res, user) {
     }
 
     const hash = await bcrypt.hash(newPassword, 10);
-    await run('UPDATE User SET password = ?, resetToken = NULL, resetTokenExpiry = NULL, updatedAt = datetime("now") WHERE id = ?', [hash, user.id]);
+    await run('UPDATE User SET password = ?, resetToken = NULL, resetTokenExpiry = NULL, updatedAt = CURRENT_TIMESTAMP WHERE id = ?', [hash, user.id]);
 
     jsonResponse(res, 200, { message: 'Password changed successfully' });
   } catch (err) {
@@ -472,7 +472,7 @@ async function handleForgotPassword(req, res) {
     const resetTokenExpiry = new Date(Date.now() + 3600000); // 1 hour
 
     await run(
-      'UPDATE User SET resetToken = ?, resetTokenExpiry = ?, updatedAt = datetime("now") WHERE email = ?',
+      'UPDATE User SET resetToken = ?, resetTokenExpiry = ?, updatedAt = CURRENT_TIMESTAMP WHERE email = ?',
       [resetToken, resetTokenExpiry.toISOString(), email]
     );
 
@@ -501,7 +501,7 @@ async function handleResetPassword(req, res) {
 
   try {
     const users = await query(
-      'SELECT id FROM User WHERE resetToken = ? AND resetTokenExpiry > datetime("now")',
+      'SELECT id FROM User WHERE resetToken = ? AND resetTokenExpiry > CURRENT_TIMESTAMP',
       [token]
     );
 
@@ -511,7 +511,7 @@ async function handleResetPassword(req, res) {
 
     const hash = await bcrypt.hash(password, 10);
     await run(
-      'UPDATE User SET password = ?, resetToken = NULL, resetTokenExpiry = NULL, updatedAt = datetime("now") WHERE resetToken = ?',
+      'UPDATE User SET password = ?, resetToken = NULL, resetTokenExpiry = NULL, updatedAt = CURRENT_TIMESTAMP WHERE resetToken = ?',
       [hash, token]
     );
 
@@ -553,9 +553,9 @@ async function handleUpdateTrainingEvent(req, res, user) {
     const rows = await query('SELECT id FROM TrainingEvent WHERE isActive = 1 ORDER BY updatedAt DESC LIMIT 1');
 
     if (rows.length) {
-      await run('UPDATE TrainingEvent SET title = ?, dateLabel = ?, venue = ?, note = ?, updatedAt = datetime("now") WHERE id = ?', [title, dateLabel, venue, note || '', rows[0].id]);
+      await run('UPDATE TrainingEvent SET title = ?, dateLabel = ?, venue = ?, note = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?', [title, dateLabel, venue, note || '', rows[0].id]);
     } else {
-      await run('INSERT INTO TrainingEvent (title, dateLabel, venue, note, isActive, createdAt, updatedAt) VALUES (?, ?, ?, ?, 1, datetime("now"), datetime("now"))', [title, dateLabel, venue, note || '']);
+      await run('INSERT INTO TrainingEvent (title, dateLabel, venue, note, isActive, createdAt, updatedAt) VALUES (?, ?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)', [title, dateLabel, venue, note || '']);
     }
 
     jsonResponse(res, 200, { message: 'Training event updated successfully' });
@@ -633,12 +633,12 @@ async function handleUpdatePaymentConfig(req, res, user) {
     const config = await query('SELECT id FROM PaymentConfig WHERE isActive = 1 ORDER BY updatedAt DESC LIMIT 1');
     if (config.length) {
       await run(
-        'UPDATE PaymentConfig SET oneTimeRegistrationFee = ?, trainingSessionFee = ?, bundleMonths = ?, monthlyBundleFee = ?, dueDate = ?, updatedAt = datetime("now") WHERE id = ?',
+        'UPDATE PaymentConfig SET oneTimeRegistrationFee = ?, trainingSessionFee = ?, bundleMonths = ?, monthlyBundleFee = ?, dueDate = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?',
         [registrationFee, sessionFee, months, bundleFee, parsedDueDate.toISOString(), config[0].id]
       );
     } else {
       await run(
-        'INSERT INTO PaymentConfig (oneTimeRegistrationFee, trainingSessionFee, bundleMonths, monthlyBundleFee, dueDate, isActive, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, 1, datetime("now"), datetime("now"))',
+        'INSERT INTO PaymentConfig (oneTimeRegistrationFee, trainingSessionFee, bundleMonths, monthlyBundleFee, dueDate, isActive, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)',
         [registrationFee, sessionFee, months, bundleFee, parsedDueDate.toISOString()]
       );
     }
@@ -696,7 +696,7 @@ async function handleUploadGallery(req, res, user) {
       }
 
       await run(
-        'INSERT INTO GalleryMedia (title, caption, mediaType, mediaUrl, mimeType, isPublished, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, 1, datetime("now"), datetime("now"))',
+        'INSERT INTO GalleryMedia (title, caption, mediaType, mediaUrl, mimeType, isPublished, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)',
         [title, caption || '', 'video', youtubeUrl, 'youtube']
       );
 
@@ -772,7 +772,7 @@ async function handleCreateSponsor(req, res, user) {
 
   try {
     await run(
-      'INSERT INTO Sponsor (name, type, description, websiteUrl, isPublished, createdAt, updatedAt) VALUES (?, ?, ?, ?, 1, datetime("now"), datetime("now"))',
+      'INSERT INTO Sponsor (name, type, description, websiteUrl, isPublished, createdAt, updatedAt) VALUES (?, ?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)',
       [name, type, description || '', websiteUrl || '']
     );
 
@@ -853,7 +853,7 @@ async function handleUpdateRegistration(req, res, user) {
 
   try {
     await run(
-      'UPDATE Registration SET playerName = ?, age = ?, gender = ?, program = ?, medical = ?, updatedAt = datetime("now") WHERE id = ?',
+      'UPDATE Registration SET playerName = ?, age = ?, gender = ?, program = ?, medical = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?',
       [playerName, numericAge, gender, program, medical || '', registrationId]
     );
 
@@ -882,11 +882,11 @@ async function handleConfirmPayment(req, res, user) {
     }
 
     await run(
-      'UPDATE BillingInfo SET paid = 1, registrationFeeSettled = 1, paymentConfirmedAt = datetime("now"), updatedAt = datetime("now") WHERE registrationId = ?',
+      'UPDATE BillingInfo SET paid = 1, registrationFeeSettled = 1, paymentConfirmedAt = CURRENT_TIMESTAMP, updatedAt = CURRENT_TIMESTAMP WHERE registrationId = ?',
       [registrationId]
     );
 
-    await run('UPDATE Registration SET status = ?, updatedAt = datetime("now") WHERE id = ?', ['Paid', registrationId]);
+    await run('UPDATE Registration SET status = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?', ['Paid', registrationId]);
 
     jsonResponse(res, 200, { message: 'Payment confirmed successfully' });
   } catch (err) {
@@ -912,7 +912,7 @@ async function handleAssignBadges(req, res, user) {
 
   try {
     await run(
-      'UPDATE Registration SET badges = ?, updatedAt = datetime("now") WHERE id = ?',
+      'UPDATE Registration SET badges = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?',
       [JSON.stringify(sanitized), registrationId]
     );
 
@@ -946,7 +946,7 @@ async function handleCreateStaff(req, res, user) {
 
     const hash = await bcrypt.hash(password, 10);
     const result = await run(
-      'INSERT INTO User (username, password, email, parentName, phone, isStaff, isAdmin, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, 1, 0, datetime("now"), datetime("now"))',
+      'INSERT INTO User (username, password, email, parentName, phone, isStaff, isAdmin, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, 1, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)',
       [username, hash, email, parentName, phone || '']
     );
 
@@ -997,12 +997,12 @@ async function handleUpdateStaff(req, res, user) {
     if (password) {
       const hash = await bcrypt.hash(password, 10);
       await run(
-        'UPDATE User SET username = ?, email = ?, parentName = ?, phone = ?, password = ?, updatedAt = datetime("now") WHERE id = ?',
+        'UPDATE User SET username = ?, email = ?, parentName = ?, phone = ?, password = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?',
         [username, email, parentName, phone || '', hash, staffId]
       );
     } else {
       await run(
-        'UPDATE User SET username = ?, email = ?, parentName = ?, phone = ?, updatedAt = datetime("now") WHERE id = ?',
+        'UPDATE User SET username = ?, email = ?, parentName = ?, phone = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?',
         [username, email, parentName, phone || '', staffId]
       );
     }
@@ -1040,7 +1040,7 @@ async function handleUpdateStaffProfile(req, res, user) {
 
   try {
     await run(
-      'UPDATE User SET parentName = ?, phone = ?, address = ?, updatedAt = datetime("now") WHERE id = ?',
+      'UPDATE User SET parentName = ?, phone = ?, address = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?',
       [parentName || '', phone || '', address || '', user.id]
     );
 
@@ -1056,7 +1056,7 @@ async function handleUpdateProfile(req, res, user) {
 
   try {
     await run(
-      'UPDATE User SET parentName = ?, phone = ?, address = ?, updatedAt = datetime("now") WHERE id = ?',
+      'UPDATE User SET parentName = ?, phone = ?, address = ?, updatedAt = CURRENT_TIMESTAMP WHERE id = ?',
       [parentName || '', phone || '', address || '', user.id]
     );
 

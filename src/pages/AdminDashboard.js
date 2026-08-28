@@ -377,23 +377,28 @@ export default function AdminDashboard({ user, setPage }) {
       return;
     }
 
-    const body = new FormData();
-    body.append("title", uploadForm.title);
-    body.append("caption", uploadForm.caption);
-    if (uploadForm.uploadType === "youtube") {
-      body.append("youtubeUrl", uploadForm.youtubeUrl);
-    } else {
-      body.append("media", uploadForm.mediaFile);
-    }
-
     try {
-      const response = await fetch(`${API}/admin/gallery/upload`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${user.token}`,
-        },
-        body,
-      });
+      let response;
+      
+      if (uploadForm.uploadType === "youtube") {
+        // Send YouTube URL as JSON
+        response = await fetch(`${API}/admin/gallery/upload`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${user.token}`,
+          },
+          body: JSON.stringify({
+            title: uploadForm.title,
+            caption: uploadForm.caption,
+            youtubeUrl: uploadForm.youtubeUrl,
+          }),
+        });
+      } else {
+        // File upload not yet supported
+        setUploadError("File uploads require external storage setup. Please use YouTube URLs for now.");
+        return;
+      }
 
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Failed to upload media");

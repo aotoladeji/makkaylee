@@ -319,6 +319,60 @@ async function handleGetAdminRegistrations(req, res, user) {
   }
 }
 
+async function handleUploadGallery(req, res, user) {
+  if (!user.isAdmin) {
+    return jsonResponse(res, 403, { error: 'Forbidden' });
+  }
+
+  try {
+    // Parse form data manually from request body
+    const contentType = req.headers['content-type'] || '';
+    
+    if (contentType.includes('application/json')) {
+      // JSON request (for YouTube URLs)
+      const body = await getRequestBody(req);
+      const { title, caption, youtubeUrl } = body;
+
+      if (!title) {
+        return jsonResponse(res, 400, { error: 'Media title is required' });
+      }
+
+      if (!youtubeUrl) {
+        return jsonResponse(res, 400, { error: 'YouTube URL is required' });
+      }
+
+      if (!/youtube\.com\/watch|youtu\.be\//.test(youtubeUrl)) {
+        return jsonResponse(res, 400, { error: 'Invalid YouTube URL' });
+      }
+
+      await run(
+        `INSERT INTO GalleryMedia (title, caption, mediaType, mediaUrl, mimeType, isPublished, createdAt, updatedAt)
+         VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+        [title, caption || '', 'video', youtubeUrl, 'youtube', 1]
+      );
+
+      // Get the created record
+      const rows = await query(
+        'SELECT * FROM GalleryMedia WHERE mediaUrl = ? AND title = ? ORDER BY createdAt DESC LIMIT 1',
+        [youtubeUrl, title]
+      );
+
+      const created = rows.length ? rows[0] : { title, caption: caption || '', mediaType: 'video', mediaUrl: youtubeUrl, mimeType: 'youtube', isPublished: 1 };
+
+      jsonResponse(res, 200, { message: 'Media uploaded successfully', data: created });
+    } else {
+      // For multipart form data (file uploads), we need busboy or similar
+      // For now, return error with instructions to use JSON with YouTube URL
+      jsonResponse(res, 400, {
+        error: 'File uploads require external storage setup. Use YouTube URLs for now.',
+      });
+    }
+  } catch (err) {
+    console.error('Upload gallery error:', err);
+    jsonResponse(res, 400, { error: err.message });
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // MAIN HANDLER
 // ─────────────────────────────────────────────────────────────────────────
@@ -390,6 +444,11 @@ async function handleRequest(req, res) {
     // GET /api/admin/gallery
     if (pathname === '/api/admin/gallery' && req.method === 'GET') {
       return handleGetAdminGallery(req, res, user);
+    }
+
+    // POST /api/admin/gallery/upload
+    if (pathname === '/api/admin/gallery/upload' && req.method === 'POST') {
+      return handleUploadGallery(req, res, user);
     }
 
     // GET /api/admin/sponsors

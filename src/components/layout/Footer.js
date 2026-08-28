@@ -10,7 +10,7 @@ export default function Footer({ setPage }) {
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
             <Logo size={44} />
             <div>
-              <div style={{ color: "white", fontFamily: "'Playfair Display', Georgia, serif", fontWeight: 900, fontSize: 16 }}>MakkayLee FA</div>
+              <div style={{ color: "white", fontFamily: "'Playfair Display', Georgia, serif", fontWeight: 900, fontSize: 16 }}>MakkayLee</div>
               <div style={{ color: "white", fontSize: 10, fontWeight: 700, letterSpacing: 2 }}>FOOTBALL ACADEMY</div>
             </div>
           </div>

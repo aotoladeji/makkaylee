@@ -10,6 +10,7 @@ export default function ProgramsPage({ setPage }) {
       schedule: "Saturdays · 8:00 AM-12:00 PM",
       fee: "NGN 30,000/month",
       color: "#FFF3CD",
+      image: "/junior.jpeg",
     },
     {
       title: "Intermediate",
@@ -19,6 +20,7 @@ export default function ProgramsPage({ setPage }) {
       schedule: "Saturdays · 8:00 AM-12:00 PM",
       fee: "NGN 30,000/month",
       color: "#E8F4FD",
+      image: "/intermediate.png",
     },
     {
       title: "Elite",
@@ -28,6 +30,7 @@ export default function ProgramsPage({ setPage }) {
       schedule: "Saturdays · 8:00 AM-12:00 PM",
       fee: "NGN 30,000/month",
       color: "#F3E8FF",
+      image: "/Elite.jpeg",
     },
   ];
 
@@ -45,8 +48,7 @@ export default function ProgramsPage({ setPage }) {
         {programs.map((program, index) => (
           <div key={program.title} style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 60, alignItems: "center", marginBottom: 80, direction: index % 2 === 1 ? "rtl" : "ltr" }} className="program-row">
             <div style={{ direction: "ltr" }}>
-              <div style={{ background: program.color, borderRadius: 20, height: 320, display: "flex", alignItems: "center", justifyContent: "center", border: "2px solid rgba(13,27,62,0.08)" }}>
-                <p style={{ color: "#555", fontWeight: 700 }}>{program.ages}</p>
+              <div style={{ borderRadius: 20, height: 320, display: "flex", alignItems: "center", justifyContent: "center", border: "2px solid rgba(13,27,62,0.08)", overflow: "hidden", background: `url('${program.image}') center/cover no-repeat` }}>
               </div>
             </div>
             <div style={{ direction: "ltr" }}>

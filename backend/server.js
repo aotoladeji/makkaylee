@@ -385,9 +385,10 @@ app.get('/api/billing', auth, async (req, res) => {
 });
 
 // User: upload payment receipt
-app.post('/api/billing/receipt', auth, receiptUpload.single('receipt'), async (req, res) => {
+app.post('/api/billing/receipt', auth, async (req, res) => {
   try {
-    if (!req.file) return res.status(400).json({ error: 'Receipt file is required' });
+    const { receiptUrl } = req.body;
+    if (!receiptUrl) return res.status(400).json({ error: 'Receipt URL (from Cloudinary) is required' });
     const paymentMode = req.body.paymentMode || 'one_time';
     if (!['one_time', 'bundle'].includes(paymentMode)) {
       return res.status(400).json({ error: 'paymentMode must be one_time or bundle' });
@@ -426,8 +427,8 @@ app.post('/api/billing/receipt', auth, receiptUpload.single('receipt'), async (r
     );
 
     await billing.update({
-      receiptUrl: `/uploads/${req.file.filename}`,
-      receiptMimeType: req.file.mimetype,
+      receiptUrl: receiptUrl,
+      receiptMimeType: 'application/cloudinary',
       receiptUploadedAt: new Date(),
       paymentMode,
       selectedAmount,
@@ -654,21 +655,16 @@ app.put('/api/admin/registrations/:id', auth, async (req, res) => {
 });
 
 // Admin: upload or replace a player's passport photograph
-app.post('/api/admin/registrations/:id/passport', auth, passportUpload.single('passport'), async (req, res) => {
+app.post('/api/admin/registrations/:id/passport', auth, async (req, res) => {
   if (!req.user.isAdmin) return res.status(403).json({ error: 'Forbidden' });
 
   try {
-    if (!req.file) return res.status(400).json({ error: 'Passport image is required' });
+    const { passportUrl } = req.body;
+    if (!passportUrl) return res.status(400).json({ error: 'Passport URL (from Cloudinary) is required' });
 
     const registration = await Registration.findByPk(req.params.id);
     if (!registration) return res.status(404).json({ error: 'Registration not found' });
 
-    if (registration.passportUrl) {
-      const oldPath = path.join(__dirname, registration.passportUrl.replace('/uploads/', 'uploads/'));
-      if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
-    }
-
-    const passportUrl = `/uploads/${req.file.filename}`;
     await registration.update({ passportUrl });
     res.json({ message: 'Passport photo uploaded', data: { id: registration.id, passportUrl } });
   } catch (err) {
@@ -677,11 +673,12 @@ app.post('/api/admin/registrations/:id/passport', auth, passportUpload.single('p
 });
 
 // Admin: upload or replace a payment receipt for a player
-app.post('/api/admin/registrations/:id/receipt', auth, receiptUpload.single('receipt'), async (req, res) => {
+app.post('/api/admin/registrations/:id/receipt', auth, async (req, res) => {
   if (!req.user.isAdmin) return res.status(403).json({ error: 'Forbidden' });
 
   try {
-    if (!req.file) return res.status(400).json({ error: 'Receipt file is required' });
+    const { receiptUrl } = req.body;
+    if (!receiptUrl) return res.status(400).json({ error: 'Receipt URL (from Cloudinary) is required' });
 
     const registration = await Registration.findByPk(req.params.id);
     if (!registration) return res.status(404).json({ error: 'Registration not found' });
@@ -689,15 +686,9 @@ app.post('/api/admin/registrations/:id/receipt', auth, receiptUpload.single('rec
     const billing = await BillingInfo.findOne({ where: { registrationId: registration.id } });
     if (!billing) return res.status(404).json({ error: 'Billing record not found' });
 
-    if (billing.receiptUrl) {
-      const oldPath = path.join(__dirname, billing.receiptUrl.replace('/uploads/', 'uploads/'));
-      if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
-    }
-
-    const receiptUrl = `/uploads/${req.file.filename}`;
     await billing.update({
       receiptUrl,
-      receiptMimeType: req.file.mimetype,
+      receiptMimeType: 'application/cloudinary',
       receiptUploadedAt: new Date(),
       paid: false,
       paymentConfirmedAt: null,
@@ -709,7 +700,7 @@ app.post('/api/admin/registrations/:id/receipt', auth, receiptUpload.single('rec
       data: {
         registrationId: registration.id,
         receiptUrl,
-        receiptMimeType: req.file.mimetype,
+        receiptMimeType: 'application/cloudinary',
         receiptUploadedAt: billing.receiptUploadedAt,
       },
     });
@@ -1002,35 +993,36 @@ app.get('/api/admin/gallery', auth, async (req, res) => {
 });
 
 // Admin: upload media for gallery
-app.post('/api/admin/gallery/upload', auth, upload.single('media'), async (req, res) => {
+app.post('/api/admin/gallery/upload', auth, async (req, res) => {
   if (!req.user.isAdmin) return res.status(403).json({ error: 'Forbidden' });
 
   try {
-    const { title, caption, youtubeUrl } = req.body;
+    const { title, caption, youtubeUrl, mediaUrl } = req.body;
 
     if (!title) return res.status(400).json({ error: 'Media title is required' });
-    if (!req.file && !youtubeUrl) return res.status(400).json({ error: 'Media file or YouTube URL is required' });
+    if (!mediaUrl && !youtubeUrl) return res.status(400).json({ error: 'Media URL (Cloudinary) or YouTube URL is required' });
 
-    let mediaType, mediaUrl, mimeType;
+    let finalType, finalUrl, mimeType;
 
     if (youtubeUrl) {
       if (!/youtube\.com\/watch|youtu\.be\//.test(youtubeUrl)) {
         return res.status(400).json({ error: 'Invalid YouTube URL' });
       }
-      mediaType = 'video';
-      mediaUrl = youtubeUrl;
+      finalType = 'video';
+      finalUrl = youtubeUrl;
       mimeType = 'youtube';
-    } else {
-      mediaType = req.file.mimetype.startsWith('video/') ? 'video' : 'image';
-      mediaUrl = `/uploads/${req.file.filename}`;
-      mimeType = req.file.mimetype;
+    } else if (mediaUrl) {
+      // Detect type from mediaUrl - assumes Cloudinary URL
+      finalType = mediaUrl.includes('video') ? 'video' : 'image';
+      finalUrl = mediaUrl;
+      mimeType = finalType === 'video' ? 'video/cloudinary' : 'image/cloudinary';
     }
 
     const created = await GalleryMedia.create({
       title,
       caption: caption || '',
-      mediaType,
-      mediaUrl,
+      mediaType: finalType,
+      mediaUrl: finalUrl,
       mimeType,
       isPublished: true,
     });
@@ -1257,16 +1249,15 @@ app.get('/api/sponsors', async (req, res) => {
   }
 });
 
-// Admin: add sponsor / partner (with logo upload)
-app.post('/api/admin/sponsors', auth, logoUpload.single('logo'), async (req, res) => {
+// Admin: add sponsor / partner (with logo URL from Cloudinary)
+app.post('/api/admin/sponsors', auth, async (req, res) => {
   if (!req.user.isAdmin) return res.status(403).json({ error: 'Forbidden' });
   try {
-    const { name, type, description, websiteUrl } = req.body;
+    const { name, type, description, websiteUrl, logoUrl } = req.body;
     if (!name) return res.status(400).json({ error: 'Name is required' });
     if (type !== 'sponsor' && type !== 'partner') return res.status(400).json({ error: 'Type must be sponsor or partner' });
-    if (!req.file) return res.status(400).json({ error: 'Logo image is required' });
+    if (!logoUrl) return res.status(400).json({ error: 'Logo URL (from Cloudinary) is required' });
 
-    const logoUrl = `/uploads/${req.file.filename}`;
     const entry = await Sponsor.create({ name, type, description: description || '', websiteUrl: websiteUrl || '', logoUrl, isPublished: true });
     res.json({ message: 'Entry created', data: entry });
   } catch (err) {

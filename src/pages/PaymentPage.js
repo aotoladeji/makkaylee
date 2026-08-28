@@ -2,9 +2,10 @@ import { useEffect, useState } from "react";
 import { API } from "../constants/api";
 import { BRAND } from "../constants/brand";
 import { ASH, NAVY } from "../constants/theme";
+import CloudinaryUpload from "../components/common/CloudinaryUpload";
 
 export default function PaymentPage({ user, setPage }) {
-  const [receiptFile, setReceiptFile] = useState(null);
+  const [receiptUrl, setReceiptUrl] = useState(null);
   const [paymentMode, setPaymentMode] = useState("one_time");
   const [selectedRegistrationId, setSelectedRegistrationId] = useState(() => localStorage.getItem("activeRegistrationId") || "");
   const [uploading, setUploading] = useState(false);
@@ -32,7 +33,7 @@ export default function PaymentPage({ user, setPage }) {
           setPaymentMode(data.paymentMode || "one_time");
           setMessage("");
           setError("");
-          setReceiptFile(null);
+          setReceiptUrl(null);
           if (data.registrationId) {
             const registrationIdValue = String(data.registrationId);
             setSelectedRegistrationId(registrationIdValue);
@@ -67,16 +68,9 @@ export default function PaymentPage({ user, setPage }) {
       return;
     }
 
-    if (!receiptFile) {
-      setError("Please choose a receipt file first.");
+    if (!receiptUrl) {
+      setError("Please upload a receipt file to Cloudinary first.");
       return;
-    }
-
-    const formData = new FormData();
-    formData.append("receipt", receiptFile);
-    formData.append("paymentMode", paymentMode);
-    if (selectedRegistrationId) {
-      formData.append("registrationId", selectedRegistrationId);
     }
 
     try {
@@ -84,21 +78,35 @@ export default function PaymentPage({ user, setPage }) {
       const response = await fetch(`${API}/billing/receipt`, {
         method: "POST",
         headers: {
+          "Content-Type": "application/json",
           Authorization: `Bearer ${user.token}`,
         },
-        body: formData,
+        body: JSON.stringify({
+          receiptUrl,
+          paymentMode,
+          registrationId: selectedRegistrationId || undefined,
+        }),
       });
 
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Failed to upload receipt");
 
       setMessage("Receipt uploaded. Admin will confirm your payment shortly.");
-      setReceiptFile(null);
+      setReceiptUrl(null);
     } catch (uploadError) {
       setError(uploadError.message);
     } finally {
       setUploading(false);
     }
+  };
+
+  const handleReceiptUploadSuccess = (result) => {
+    setReceiptUrl(result.url);
+    setError("");
+  };
+
+  const handleReceiptUploadError = (error) => {
+    setError(error || "Receipt upload failed");
   };
 
   return (
@@ -190,17 +198,24 @@ export default function PaymentPage({ user, setPage }) {
             <h3 style={{ color: NAVY, marginTop: 0 }}>Upload Payment Receipt</h3>
             <p style={{ color: "#666", fontSize: 14 }}>Accepted formats: image or PDF (max 10MB).</p>
 
-            <form onSubmit={handleUploadReceipt}>
-              <input
-                type="file"
-                accept="image/*,application/pdf"
-                onChange={(event) => setReceiptFile(event.target.files?.[0] || null)}
-                style={{ marginBottom: 14 }}
-              />
+            <CloudinaryUpload
+              onUploadSuccess={handleReceiptUploadSuccess}
+              onUploadError={handleReceiptUploadError}
+              accept="image/*,.pdf"
+              resourceType="auto"
+              maxSize={10 * 1024 * 1024}
+              label="Upload Receipt"
+              folder="makkaylee/receipts"
+            />
+            {receiptUrl && (
+              <p style={{ color: "green", fontSize: 14, marginTop: 10 }}>✓ Receipt uploaded successfully. Click button below to submit.</p>
+            )}
+
+            <form onSubmit={handleUploadReceipt} style={{ marginTop: 20 }}>
               <div>
                 <button
                   type="submit"
-                  disabled={uploading}
+                  disabled={uploading || !receiptUrl}
                   style={{
                     background: NAVY,
                     color: "white",
@@ -208,11 +223,11 @@ export default function PaymentPage({ user, setPage }) {
                     padding: "12px 20px",
                     borderRadius: 8,
                     fontWeight: 700,
-                    cursor: uploading ? "not-allowed" : "pointer",
-                    opacity: uploading ? 0.75 : 1,
+                    cursor: uploading || !receiptUrl ? "not-allowed" : "pointer",
+                    opacity: uploading || !receiptUrl ? 0.75 : 1,
                   }}
                 >
-                  {uploading ? "Uploading..." : "Upload Receipt"}
+                  {uploading ? "Submitting..." : "Submit Receipt"}
                 </button>
                 {!!setPage && (
                   <button

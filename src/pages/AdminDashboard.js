@@ -3,6 +3,7 @@ import { API } from "../constants/api";
 import { ASH, NAVY } from "../constants/theme";
 import { BADGE_LIST, BADGES } from "../constants/badges";
 import Input from "../components/common/Input";
+import CloudinaryUpload from "../components/common/CloudinaryUpload";
 
 export default function AdminDashboard({ user, setPage }) {
   const [registrations, setRegistrations] = useState([]);
@@ -34,6 +35,7 @@ export default function AdminDashboard({ user, setPage }) {
     caption: "",
     uploadType: "file",
     mediaFile: null,
+    mediaUrl: "", // Cloudinary URL
     youtubeUrl: "",
   });
   const [uploadMessage, setUploadMessage] = useState("");
@@ -63,8 +65,8 @@ export default function AdminDashboard({ user, setPage }) {
   const [playerActionMessage, setPlayerActionMessage] = useState("");
   const [playerActionError, setPlayerActionError] = useState("");
   const [playerUploadId, setPlayerUploadId] = useState(null);
-  const [passportFile, setPassportFile] = useState(null);
-  const [receiptFile, setReceiptFile] = useState(null);
+  const [passportUrl, setPassportUrl] = useState(null);
+  const [receiptUrl, setReceiptUrl] = useState(null);
   const [documentSaving, setDocumentSaving] = useState(false);
 
   const [staffForm, setStaffForm] = useState({
@@ -82,7 +84,7 @@ export default function AdminDashboard({ user, setPage }) {
   const [staffEditSaving, setStaffEditSaving] = useState(false);
 
   const [sponsorList, setSponsorList] = useState([]);
-  const [sponsorForm, setSponsorForm] = useState({ name: "", type: "sponsor", description: "", websiteUrl: "", logo: null });
+  const [sponsorForm, setSponsorForm] = useState({ name: "", type: "sponsor", description: "", websiteUrl: "", logoUrl: "", logo: null });
   const [sponsorMessage, setSponsorMessage] = useState("");
   const [sponsorError, setSponsorError] = useState("");
   const [sponsorSaving, setSponsorSaving] = useState(false);
@@ -349,11 +351,21 @@ export default function AdminDashboard({ user, setPage }) {
     }
 
     if (name === "uploadType") {
-      setUploadForm((current) => ({ ...current, uploadType: value, mediaFile: null, youtubeUrl: "" }));
+      setUploadForm((current) => ({ ...current, uploadType: value, mediaFile: null, mediaUrl: "", youtubeUrl: "" }));
       return;
     }
 
     setUploadForm((current) => ({ ...current, [name]: value }));
+  };
+
+  // Handle successful Cloudinary upload
+  const handleMediaUploadSuccess = (result) => {
+    setUploadForm((current) => ({ ...current, mediaUrl: result.url, mediaFile: null }));
+    setUploadError("");
+  };
+
+  const handleMediaUploadError = (error) => {
+    setUploadError(error || "Upload failed");
   };
 
   const handleUploadSubmit = async (event) => {
@@ -372,40 +384,32 @@ export default function AdminDashboard({ user, setPage }) {
         setUploadError("Please enter a valid YouTube URL (e.g. https://www.youtube.com/watch?v=... or https://youtu.be/...).");
         return;
       }
-    } else if (!uploadForm.mediaFile) {
-      setUploadError("Media file is required.");
+    } else if (!uploadForm.mediaUrl) {
+      setUploadError("Please upload a media file to Cloudinary first.");
       return;
     }
 
     try {
-      let response;
-      
-      if (uploadForm.uploadType === "youtube") {
-        // Send YouTube URL as JSON
-        response = await fetch(`${API}/admin/gallery/upload`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${user.token}`,
-          },
-          body: JSON.stringify({
-            title: uploadForm.title,
-            caption: uploadForm.caption,
-            youtubeUrl: uploadForm.youtubeUrl,
-          }),
-        });
-      } else {
-        // File upload not yet supported
-        setUploadError("File uploads require external storage setup. Please use YouTube URLs for now.");
-        return;
-      }
+      const response = await fetch(`${API}/admin/gallery/upload`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${user.token}`,
+        },
+        body: JSON.stringify({
+          title: uploadForm.title,
+          caption: uploadForm.caption,
+          youtubeUrl: uploadForm.uploadType === "youtube" ? uploadForm.youtubeUrl : undefined,
+          mediaUrl: uploadForm.uploadType === "file" ? uploadForm.mediaUrl : undefined,
+        }),
+      });
 
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Failed to upload media");
 
       setGalleryMedia((current) => [data.data, ...current]);
       setUploadMessage("Gallery media uploaded.");
-      setUploadForm({ title: "", caption: "", uploadType: "file", mediaFile: null, youtubeUrl: "" });
+      setUploadForm({ title: "", caption: "", uploadType: "file", mediaFile: null, mediaUrl: "", youtubeUrl: "" });
     } catch (submitError) {
       setUploadError(submitError.message);
     }
@@ -497,18 +501,25 @@ export default function AdminDashboard({ user, setPage }) {
   };
 
   const handlePlayerDocumentUpload = async (registrationId, type) => {
-    const file = type === "passport" ? passportFile : receiptFile;
-    if (!file) {
-      setPlayerActionError(`Choose a ${type === "passport" ? "passport image" : "receipt file"} first.`);
+    const url = type === "passport" ? passportUrl : receiptUrl;
+    if (!url) {
+      setPlayerActionError(`Upload a ${type === "passport" ? "passport image" : "receipt file"} to Cloudinary first.`);
       return;
     }
     setPlayerActionError("");
     setPlayerActionMessage("");
     setDocumentSaving(true);
     try {
-      const body = new FormData();
-      body.append(type, file);
-      const response = await fetch(`${API}/admin/registrations/${registrationId}/${type}`, { method: "POST", headers: { Authorization: `Bearer ${user.token}` }, body });
+      const response = await fetch(`${API}/admin/registrations/${registrationId}/${type}`, { 
+        method: "POST", 
+        headers: { 
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${user.token}` 
+        }, 
+        body: JSON.stringify({ 
+          [type === "passport" ? "passportUrl" : "receiptUrl"]: url 
+        })
+      });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || `Failed to upload ${type}`);
       setRegistrations((current) => current.map((registration) => {
@@ -516,14 +527,32 @@ export default function AdminDashboard({ user, setPage }) {
         if (type === "passport") return { ...registration, passportUrl: data.data.passportUrl };
         return { ...registration, status: "Receipt Submitted", BillingInfo: { ...registration.BillingInfo, receiptUrl: data.data.receiptUrl, receiptMimeType: data.data.receiptMimeType, receiptUploadedAt: data.data.receiptUploadedAt, paid: false, paymentConfirmedAt: null } };
       }));
-      if (type === "passport") setPassportFile(null);
-      else setReceiptFile(null);
+      if (type === "passport") setPassportUrl(null);
+      else setReceiptUrl(null);
       setPlayerActionMessage(`${type === "passport" ? "Passport photo" : "Payment receipt"} uploaded.`);
     } catch (uploadError) {
       setPlayerActionError(uploadError.message);
     } finally {
       setDocumentSaving(false);
     }
+  };
+
+  const handlePassportUploadSuccess = (result) => {
+    setPassportUrl(result.url);
+    setPlayerActionError("");
+  };
+
+  const handlePassportUploadError = (error) => {
+    setPlayerActionError(error || "Passport upload failed");
+  };
+
+  const handleReceiptUploadSuccess = (result) => {
+    setReceiptUrl(result.url);
+    setPlayerActionError("");
+  };
+
+  const handleReceiptUploadError = (error) => {
+    setPlayerActionError(error || "Receipt upload failed");
   };
 
   const handleAssignBadges = async () => {
@@ -772,31 +801,43 @@ export default function AdminDashboard({ user, setPage }) {
     }
   };
 
+  const handleSponsorLogoUploadSuccess = (result) => {
+    setSponsorForm((prev) => ({ ...prev, logoUrl: result.url, logo: null }));
+    setSponsorError("");
+  };
+
+  const handleSponsorLogoUploadError = (error) => {
+    setSponsorError(error || "Logo upload failed");
+  };
+
   const handleSponsorSubmit = async (e) => {
     e.preventDefault();
     setSponsorError("");
     setSponsorMessage("");
     if (!sponsorForm.name.trim()) { setSponsorError("Name is required."); return; }
-    if (!sponsorForm.logo) { setSponsorError("Logo image is required."); return; }
+    if (!sponsorForm.logoUrl) { setSponsorError("Please upload a logo to Cloudinary first."); return; }
     setSponsorSaving(true);
     try {
-      const formData = new FormData();
-      formData.append("name", sponsorForm.name);
-      formData.append("type", sponsorForm.type);
-      formData.append("description", sponsorForm.description);
-      formData.append("websiteUrl", sponsorForm.websiteUrl);
-      formData.append("logo", sponsorForm.logo);
       const res = await fetch(`${API}/admin/sponsors`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${user.token}` },
-        body: formData,
+        headers: { 
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${user.token}` 
+        },
+        body: JSON.stringify({
+          name: sponsorForm.name,
+          type: sponsorForm.type,
+          description: sponsorForm.description,
+          websiteUrl: sponsorForm.websiteUrl,
+          logoUrl: sponsorForm.logoUrl,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to add entry");
       const listRes = await fetch(`${API}/admin/sponsors`, { headers: { Authorization: `Bearer ${user.token}` } });
       const listData = await listRes.json();
       if (listRes.ok && Array.isArray(listData)) setSponsorList(listData);
-      setSponsorForm({ name: "", type: "sponsor", description: "", websiteUrl: "", logo: null });
+      setSponsorForm({ name: "", type: "sponsor", description: "", websiteUrl: "", logoUrl: "", logo: null });
       setSponsorMessage(`${sponsorForm.type === "sponsor" ? "Sponsor" : "Partner"} added successfully.`);
     } catch (submitErr) {
       setSponsorError(submitErr.message);
@@ -1183,8 +1224,35 @@ export default function AdminDashboard({ user, setPage }) {
 
                     {playerUploadId === reg.id ? (
                       <div style={{ marginBottom: 16, padding: 16, background: "#f9fafb", border: "1px solid #dce3ea", borderRadius: 10 }}>
-                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))", gap: 16 }}><label style={{ color: NAVY, fontSize: 13, fontWeight: 700 }}>Passport photo<input type="file" accept="image/*" onChange={(event) => setPassportFile(event.target.files?.[0] || null)} style={{ display: "block", marginTop: 6 }} /></label><label style={{ color: NAVY, fontSize: 13, fontWeight: 700 }}>Payment receipt<input type="file" accept="image/*,application/pdf" onChange={(event) => setReceiptFile(event.target.files?.[0] || null)} style={{ display: "block", marginTop: 6 }} /></label></div>
-                        <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}><button type="button" disabled={documentSaving} onClick={() => handlePlayerDocumentUpload(reg.id, "passport")} style={{ background: NAVY, color: "white", border: "none", padding: "9px 14px", borderRadius: 6, fontWeight: 700, cursor: "pointer" }}>{documentSaving ? "Uploading..." : "Upload Passport"}</button><button type="button" disabled={documentSaving} onClick={() => handlePlayerDocumentUpload(reg.id, "receipt")} style={{ background: "#455a64", color: "white", border: "none", padding: "9px 14px", borderRadius: 6, fontWeight: 700, cursor: "pointer" }}>{documentSaving ? "Uploading..." : "Upload Receipt"}</button><button type="button" onClick={() => { setPlayerUploadId(null); setPassportFile(null); setReceiptFile(null); }} style={{ background: "#e0e0e0", color: "#333", border: "none", padding: "9px 14px", borderRadius: 6, fontWeight: 700, cursor: "pointer" }}>Close</button></div>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16 }}>
+                          <div>
+                            <label style={{ color: NAVY, fontSize: 13, fontWeight: 700, display: "block", marginBottom: 8 }}>Passport Photo</label>
+                            <CloudinaryUpload
+                              onUploadSuccess={handlePassportUploadSuccess}
+                              onUploadError={handlePassportUploadError}
+                              accept="image/*"
+                              resourceType="image"
+                              maxSize={5 * 1024 * 1024}
+                              label="Upload Passport Photo"
+                              folder="makkaylee/passports"
+                            />
+                            {passportUrl && <p style={{ color: "green", fontSize: 12, marginTop: 4 }}>✓ Photo ready</p>}
+                          </div>
+                          <div>
+                            <label style={{ color: NAVY, fontSize: 13, fontWeight: 700, display: "block", marginBottom: 8 }}>Payment Receipt</label>
+                            <CloudinaryUpload
+                              onUploadSuccess={handleReceiptUploadSuccess}
+                              onUploadError={handleReceiptUploadError}
+                              accept="image/*,.pdf"
+                              resourceType="auto"
+                              maxSize={10 * 1024 * 1024}
+                              label="Upload Receipt"
+                              folder="makkaylee/receipts"
+                            />
+                            {receiptUrl && <p style={{ color: "green", fontSize: 12, marginTop: 4 }}>✓ Receipt ready</p>}
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}><button type="button" disabled={documentSaving || !passportUrl} onClick={() => handlePlayerDocumentUpload(reg.id, "passport")} style={{ background: NAVY, color: "white", border: "none", padding: "9px 14px", borderRadius: 6, fontWeight: 700, cursor: documentSaving || !passportUrl ? "not-allowed" : "pointer", opacity: documentSaving || !passportUrl ? 0.75 : 1 }}>{documentSaving ? "Uploading..." : "Submit Passport"}</button><button type="button" disabled={documentSaving || !receiptUrl} onClick={() => handlePlayerDocumentUpload(reg.id, "receipt")} style={{ background: "#455a64", color: "white", border: "none", padding: "9px 14px", borderRadius: 6, fontWeight: 700, cursor: documentSaving || !receiptUrl ? "not-allowed" : "pointer", opacity: documentSaving || !receiptUrl ? 0.75 : 1 }}>{documentSaving ? "Uploading..." : "Submit Receipt"}</button><button type="button" onClick={() => { setPlayerUploadId(null); setPassportUrl(null); setReceiptUrl(null); }} style={{ background: "#e0e0e0", color: "#333", border: "none", padding: "9px 14px", borderRadius: 6, fontWeight: 700, cursor: "pointer" }}>Close</button></div>
                       </div>
                     ) : <button type="button" onClick={() => { setPlayerUploadId(reg.id); setPlayerActionError(""); setPlayerActionMessage(""); }} style={{ marginBottom: 16, background: "#e8f5e9", color: "#2e7d32", border: "1px solid #a5d6a7", borderRadius: 6, padding: "8px 12px", fontWeight: 700, cursor: "pointer", fontSize: 13 }}>Manage Documents</button>}
 
@@ -1590,15 +1658,21 @@ export default function AdminDashboard({ user, setPage }) {
                   <Input label="YouTube URL" name="youtubeUrl" value={uploadForm.youtubeUrl} onChange={handleUploadChange} required />
                 ) : (
                   <div style={{ marginBottom: 18 }}>
-                    <label style={{ display: "block", fontWeight: 700, fontSize: 13, color: NAVY, marginBottom: 6, letterSpacing: 0.5 }}>
-                      Media File <span style={{ color: "red" }}>*</span>
+                    <label style={{ display: "block", fontWeight: 700, fontSize: 13, color: NAVY, marginBottom: 12, letterSpacing: 0.5 }}>
+                      Media File (Image or Video) <span style={{ color: "red" }}>*</span>
                     </label>
-                    <input
-                      name="mediaFile"
-                      type="file"
+                    <CloudinaryUpload
+                      onUploadSuccess={handleMediaUploadSuccess}
+                      onUploadError={handleMediaUploadError}
                       accept="image/*,video/*"
-                      onChange={handleUploadChange}
+                      resourceType="auto"
+                      maxSize={100 * 1024 * 1024}
+                      label="Upload Media to Cloudinary"
+                      folder="makkaylee/gallery"
                     />
+                    {uploadForm.mediaUrl && (
+                      <p style={{ color: "green", fontSize: 13, marginTop: 8 }}>✓ Media uploaded successfully</p>
+                    )}
                   </div>
                 )}
 
@@ -1670,10 +1744,21 @@ export default function AdminDashboard({ user, setPage }) {
                 <Input label="Description" name="description" value={sponsorForm.description} onChange={handleSponsorChange} />
                 <Input label="Website URL (optional)" name="websiteUrl" value={sponsorForm.websiteUrl} onChange={handleSponsorChange} />
                 <div style={{ marginBottom: 18 }}>
-                  <label style={{ display: "block", fontWeight: 700, fontSize: 13, color: NAVY, marginBottom: 6, letterSpacing: 0.5 }}>
+                  <label style={{ display: "block", fontWeight: 700, fontSize: 13, color: NAVY, marginBottom: 12, letterSpacing: 0.5 }}>
                     Logo Image <span style={{ color: "red" }}>*</span>
                   </label>
-                  <input type="file" name="logo" accept="image/*" onChange={handleSponsorChange} required />
+                  <CloudinaryUpload
+                    onUploadSuccess={handleSponsorLogoUploadSuccess}
+                    onUploadError={handleSponsorLogoUploadError}
+                    accept="image/*"
+                    resourceType="image"
+                    maxSize={5 * 1024 * 1024}
+                    label="Upload Logo to Cloudinary"
+                    folder="makkaylee/sponsors"
+                  />
+                  {sponsorForm.logoUrl && (
+                    <p style={{ color: "green", fontSize: 13, marginTop: 8 }}>✓ Logo uploaded successfully</p>
+                  )}
                 </div>
                 <button
                   type="submit"

@@ -407,15 +407,66 @@ async function handleDeleteChild(req, res, user) {
 
 async function handleUploadBillingReceipt(req, res, user) {
   const body = await getRequestBody(req);
-  const { paymentMode, registrationId } = body;
+  const { paymentMode, registrationId, receiptUrl } = body;
 
   if (!paymentMode || !['one_time', 'bundle'].includes(paymentMode)) {
     return jsonResponse(res, 400, { error: 'paymentMode must be one_time or bundle' });
   }
 
-  // NOTE: For Vercel, file uploads aren't supported directly
-  // This would require external storage (S3, etc.)
-  jsonResponse(res, 400, { error: 'File uploads are not supported on serverless. Please use the backend server or implement external storage.' });
+  if (!receiptUrl) {
+    return jsonResponse(res, 400, { error: 'Receipt URL (from Cloudinary) is required' });
+  }
+
+  try {
+    const requestedRegistrationId = Number(registrationId);
+    const registrationWhere = { userId: user.id };
+    if (!Number.isNaN(requestedRegistrationId)) {
+      registrationWhere.id = requestedRegistrationId;
+    }
+
+    const registration = await query(
+      'SELECT id, userId, status FROM Registration WHERE userId = ? ORDER BY createdAt DESC LIMIT 1',
+      [user.id]
+    );
+    if (!registration.length) {
+      return jsonResponse(res, 404, { error: 'Registration not found' });
+    }
+
+    const regId = registration[0].id;
+    
+    const billing = await query(
+      'SELECT * FROM BillingInfo WHERE registrationId = ? LIMIT 1',
+      [regId]
+    );
+    if (!billing.length) {
+      return jsonResponse(res, 404, { error: 'Billing record not found' });
+    }
+
+    const selectedAmount = computeAmountByMode(
+      billing[0].registrationFee,
+      billing[0].trainingSessionFee,
+      billing[0].bundleFee,
+      paymentMode,
+      !billing[0].registrationFeeSettled
+    );
+
+    await run(
+      'UPDATE BillingInfo SET receiptUrl = ?, receiptMimeType = ?, receiptUploadedAt = ?, paymentMode = ?, selectedAmount = ?, amountDue = ?, paymentConfirmedAt = NULL WHERE registrationId = ?',
+      [receiptUrl, 'application/cloudinary', new Date().toISOString(), paymentMode, selectedAmount, selectedAmount, regId]
+    );
+
+    await run(
+      'UPDATE Registration SET status = ? WHERE id = ?',
+      ['Receipt Submitted', regId]
+    );
+
+    jsonResponse(res, 200, { 
+      message: 'Receipt uploaded successfully',
+      data: { receiptUrl, receiptMimeType: 'application/cloudinary' }
+    });
+  } catch (err) {
+    jsonResponse(res, 400, { error: err.message });
+  }
 }
 
 async function handleChangePassword(req, res, user) {
@@ -677,33 +728,37 @@ async function handleUploadGallery(req, res, user) {
   }
 
   try {
-    const contentType = req.headers['content-type'] || '';
+    const body = await getRequestBody(req);
+    const { title, caption, youtubeUrl, mediaUrl } = body;
 
-    if (contentType.includes('application/json')) {
-      const body = await getRequestBody(req);
-      const { title, caption, youtubeUrl } = body;
+    if (!title) {
+      return jsonResponse(res, 400, { error: 'Media title is required' });
+    }
 
-      if (!title) {
-        return jsonResponse(res, 400, { error: 'Media title is required' });
-      }
+    let mediaType, finalUrl, mimeType;
 
-      if (!youtubeUrl) {
-        return jsonResponse(res, 400, { error: 'YouTube URL is required' });
-      }
-
+    if (youtubeUrl) {
       if (!/youtube\.com\/watch|youtu\.be\//.test(youtubeUrl)) {
         return jsonResponse(res, 400, { error: 'Invalid YouTube URL' });
       }
-
-      await run(
-        'INSERT INTO GalleryMedia (title, caption, mediaType, mediaUrl, mimeType, isPublished, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)',
-        [title, caption || '', 'video', youtubeUrl, 'youtube']
-      );
-
-      jsonResponse(res, 200, { message: 'Media uploaded successfully' });
+      mediaType = 'video';
+      finalUrl = youtubeUrl;
+      mimeType = 'youtube';
+    } else if (mediaUrl) {
+      // Cloudinary URL
+      mediaType = mediaUrl.includes('video') ? 'video' : 'image';
+      finalUrl = mediaUrl;
+      mimeType = mediaType === 'video' ? 'video/cloudinary' : 'image/cloudinary';
     } else {
-      jsonResponse(res, 400, { error: 'Use JSON with YouTube URLs for serverless deployment' });
+      return jsonResponse(res, 400, { error: 'Either YouTube URL or Cloudinary URL (mediaUrl) is required' });
     }
+
+    await run(
+      'INSERT INTO GalleryMedia (title, caption, mediaType, mediaUrl, mimeType, isPublished, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)',
+      [title, caption || '', mediaType, finalUrl, mimeType]
+    );
+
+    jsonResponse(res, 200, { message: 'Media uploaded successfully' });
   } catch (err) {
     jsonResponse(res, 400, { error: err.message });
   }
@@ -764,16 +819,20 @@ async function handleCreateSponsor(req, res, user) {
   }
 
   const body = await getRequestBody(req);
-  const { name, type, description, websiteUrl } = body;
+  const { name, type, description, websiteUrl, logoUrl } = body;
 
   if (!name || (type !== 'sponsor' && type !== 'partner')) {
     return jsonResponse(res, 400, { error: 'Name and valid type (sponsor/partner) are required' });
   }
 
+  if (!logoUrl) {
+    return jsonResponse(res, 400, { error: 'Logo URL (from Cloudinary) is required' });
+  }
+
   try {
     await run(
-      'INSERT INTO Sponsor (name, type, description, websiteUrl, isPublished, createdAt, updatedAt) VALUES (?, ?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)',
-      [name, type, description || '', websiteUrl || '']
+      'INSERT INTO Sponsor (name, type, description, websiteUrl, logoUrl, isPublished, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)',
+      [name, type, description || '', websiteUrl || '', logoUrl]
     );
 
     jsonResponse(res, 200, { message: 'Sponsor/partner entry created' });

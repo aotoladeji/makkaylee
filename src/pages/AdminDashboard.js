@@ -1773,19 +1773,19 @@ export default function AdminDashboard({ user, setPage }) {
 
               <div style={{ marginTop: 28, display: "grid", gap: 12 }}>
                 {sponsorList.length === 0 && <div style={{ color: "#777" }}>No sponsors or partners added yet.</div>}
-                {sponsorList.map((s) => (
+                {sponsorList.filter(s => s && s.id).map((s) => (
                   <div key={s.id} style={{ border: "1px solid #e8e8e8", borderRadius: 10, padding: 12, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14 }}>
                     <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
                       <div style={{ width: 64, height: 48, background: "#f0f2f7", borderRadius: 8, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                        <img src={toMediaUrl(s.logoUrl)} alt={s.name} style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
+                        <img src={toMediaUrl(s?.logoUrl)} alt={s?.name || "Logo"} style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
                       </div>
                       <div>
-                        <div style={{ color: NAVY, fontWeight: 800, fontSize: 14 }}>{s.name}</div>
+                        <div style={{ color: NAVY, fontWeight: 800, fontSize: 14 }}>{s?.name || "Unnamed"}</div>
                         <div style={{ color: "#666", fontSize: 12 }}>
-                          <span style={{ background: s.type === "sponsor" ? "#fff3e0" : "#e8f5e9", color: s.type === "sponsor" ? "#e65100" : "#2e7d32", fontWeight: 700, padding: "2px 8px", borderRadius: 20, fontSize: 11 }}>
-                            {s.type.toUpperCase()}
+                          <span style={{ background: s?.type === "sponsor" ? "#fff3e0" : "#e8f5e9", color: s?.type === "sponsor" ? "#e65100" : "#2e7d32", fontWeight: 700, padding: "2px 8px", borderRadius: 20, fontSize: 11 }}>
+                            {(s?.type || "sponsor").toUpperCase()}
                           </span>
-                          {s.description && <span style={{ marginLeft: 8 }}>{s.description.slice(0, 60)}{s.description.length > 60 ? "…" : ""}</span>}
+                          {s?.description && <span style={{ marginLeft: 8 }}>{s.description.slice(0, 60)}{s.description.length > 60 ? "…" : ""}</span>}
                         </div>
                       </div>
                     </div>

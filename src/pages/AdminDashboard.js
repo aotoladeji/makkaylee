@@ -203,7 +203,10 @@ export default function AdminDashboard({ user, setPage }) {
             note: eventData.data.note || "",
           });
         }
-        if (galleryRes.ok) setGalleryMedia(galleryData.data || []);
+        if (galleryRes.ok) {
+          const validGalleryData = (galleryData.data || []).filter(item => item && item.id);
+          setGalleryMedia(validGalleryData);
+        }
         if (paymentConfigRes.ok && paymentConfigData.data) {
           setPaymentConfigForm({
             oneTimeRegistrationFee: paymentConfigData.data.oneTimeRegistrationFee ?? 40000,
@@ -407,7 +410,10 @@ export default function AdminDashboard({ user, setPage }) {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Failed to upload media");
 
-      setGalleryMedia((current) => [data.data, ...current]);
+      // Only add to gallery if data.data exists and has an id
+      if (data.data && data.data.id) {
+        setGalleryMedia((current) => [data.data, ...current]);
+      }
       setUploadMessage("Gallery media uploaded.");
       setUploadForm({ title: "", caption: "", uploadType: "file", mediaFile: null, mediaUrl: "", youtubeUrl: "" });
     } catch (submitError) {
@@ -1695,7 +1701,7 @@ export default function AdminDashboard({ user, setPage }) {
               </form>
 
               <div style={{ marginTop: 24, display: "grid", gap: 12 }}>
-                {galleryMedia.map((item) => (
+                {galleryMedia.filter(item => item && item.id).map((item) => (
                   <div key={item.id} style={{ border: "1px solid #e8e8e8", borderRadius: 10, padding: 12, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14 }}>
                     <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
                       <div style={{ width: 72, height: 52, background: "#f0f2f7", borderRadius: 8, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" }}>

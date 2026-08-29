@@ -52,13 +52,47 @@ export default function PartnersPage({ setPage }) {
       </div>
 
       <div style={{ maxWidth: 1100, margin: "0 auto", padding: "64px 24px" }}>
+        {/* Partners list */}
+        <SectionTitle>Current Partners</SectionTitle>
+
+        {loading ? (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 24, marginTop: 32 }}>
+            {[1, 2, 3].map((i) => (
+              <div key={i} style={{ background: "white", borderRadius: 16, padding: 32, height: 200, animation: "pulse 1.5s ease-in-out infinite" }} />
+            ))}
+          </div>
+        ) : partners.length === 0 ? (
+          <div
+            style={{
+              textAlign: "center",
+              background: "white",
+              borderRadius: 16,
+              padding: "56px 32px",
+              marginTop: 32,
+              boxShadow: "0 4px 24px rgba(0,0,0,0.06)",
+            }}
+          >
+            <div style={{ fontSize: 48, marginBottom: 16 }}>🤝</div>
+            <h3 style={{ color: NAVY, fontWeight: 800, fontSize: 20, marginBottom: 12 }}>Be Our First Partner!</h3>
+            <p style={{ color: "#718096", fontSize: 15, lineHeight: 1.7 }}>
+              We are actively seeking strategic partners to grow the academy together. Contact us today to explore opportunities.
+            </p>
+          </div>
+        ) : (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 24, marginTop: 32 }}>
+            {partners.map((p) => (
+              <PartnerCard key={p.id} partner={p} apiBase={apiBase} />
+            ))}
+          </div>
+        )}
+
         {/* Seek partnership CTA */}
         <div
           style={{
             background: "white",
             borderRadius: 20,
             padding: "48px 40px",
-            marginBottom: 64,
+            marginTop: 64,
             boxShadow: "0 4px 32px rgba(0,0,0,0.07)",
             display: "flex",
             gap: 40,
@@ -150,40 +184,6 @@ export default function PartnersPage({ setPage }) {
             </a>
           </div>
         </div>
-
-        {/* Partners list */}
-        <SectionTitle>Current Partners</SectionTitle>
-
-        {loading ? (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 24, marginTop: 32 }}>
-            {[1, 2, 3].map((i) => (
-              <div key={i} style={{ background: "white", borderRadius: 16, padding: 32, height: 200, animation: "pulse 1.5s ease-in-out infinite" }} />
-            ))}
-          </div>
-        ) : partners.length === 0 ? (
-          <div
-            style={{
-              textAlign: "center",
-              background: "white",
-              borderRadius: 16,
-              padding: "56px 32px",
-              marginTop: 32,
-              boxShadow: "0 4px 24px rgba(0,0,0,0.06)",
-            }}
-          >
-            <div style={{ fontSize: 48, marginBottom: 16 }}>🤝</div>
-            <h3 style={{ color: NAVY, fontWeight: 800, fontSize: 20, marginBottom: 12 }}>Be Our First Partner!</h3>
-            <p style={{ color: "#718096", fontSize: 15, lineHeight: 1.7 }}>
-              We are actively seeking strategic partners to grow the academy together. Contact us today to explore opportunities.
-            </p>
-          </div>
-        ) : (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 24, marginTop: 32 }}>
-            {partners.map((p) => (
-              <PartnerCard key={p.id} partner={p} apiBase={apiBase} />
-            ))}
-          </div>
-        )}
       </div>
 
       <style>{`

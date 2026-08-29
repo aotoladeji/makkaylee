@@ -1699,17 +1699,17 @@ export default function AdminDashboard({ user, setPage }) {
                   <div key={item.id} style={{ border: "1px solid #e8e8e8", borderRadius: 10, padding: 12, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14 }}>
                     <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
                       <div style={{ width: 72, height: 52, background: "#f0f2f7", borderRadius: 8, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                        {item.mimeType === "youtube" ? (
+                        {item?.mimeType === "youtube" ? (
                           <div style={{ fontSize: 22 }}>▶️</div>
-                        ) : item.mediaType === "video" ? (
+                        ) : item?.mediaType === "video" ? (
                           <video src={toMediaUrl(item.mediaUrl)} style={{ width: "100%", height: "100%", objectFit: "cover" }} muted />
                         ) : (
-                          <img src={toMediaUrl(item.mediaUrl)} alt={item.title} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                          <img src={toMediaUrl(item?.mediaUrl)} alt={item?.title || "Media"} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                         )}
                       </div>
                       <div>
-                        <div style={{ color: NAVY, fontWeight: 800 }}>{item.title}</div>
-                        <div style={{ color: "#666", fontSize: 13 }}>{item.mimeType === "youtube" ? "YOUTUBE" : item.mediaType.toUpperCase()} · {item.caption || "No caption"}</div>
+                        <div style={{ color: NAVY, fontWeight: 800 }}>{item?.title || "Untitled"}</div>
+                        <div style={{ color: "#666", fontSize: 13 }}>{item?.mimeType === "youtube" ? "YOUTUBE" : (item?.mediaType || "media").toUpperCase()} · {item?.caption || "No caption"}</div>
                       </div>
                     </div>
                     <button
